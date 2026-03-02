@@ -178,3 +178,93 @@ def test_full_page_screenshot(rendered_page):
     screenshot_path = Path("/tmp/test_visual_screenshot.png")
     assert screenshot_path.exists(), "Screenshot file was not created"
     assert screenshot_path.stat().st_size > 0, "Screenshot file is empty"
+
+
+def test_slope_canvas_fills_after_dpr_change(rendered_page):
+    """Regression: slope shading must fully cover the map after a DPR change.
+
+    When the browser zoom changes (Ctrl+/-), devicePixelRatio changes and the
+    canvas layers must re-render at the correct resolution. A previous bug
+    caused the slope grid to render as horizontal stripes ("thin lines")
+    because the canvas backing store dimensions didn't match the viewport
+    after a DPR change.
+    """
+    page = rendered_page
+
+    # Verify canvas is fully filled at baseline
+    baseline_fill = page.evaluate("""() => {
+        const canvas = document.querySelector('.slope-grid-canvas');
+        if (!canvas) return { error: 'no canvas' };
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        let filled = 0, total = 0;
+        for (let y = 0; y < h; y += 10) {
+            for (let x = 0; x < w; x += 10) {
+                const p = ctx.getImageData(x, y, 1, 1).data;
+                total++;
+                if (p[3] > 0) filled++;
+            }
+        }
+        return { filled, total, pct: (filled / total * 100) };
+    }""")
+    assert baseline_fill["pct"] > 95, (
+        f"Baseline fill rate too low: {baseline_fill['pct']:.1f}%"
+    )
+
+    # Simulate DPR change (as browser zoom would)
+    page.evaluate("""() => {
+        Object.defineProperty(window, 'devicePixelRatio', {
+            get: () => 1.5,
+            configurable: true,
+        });
+    }""")
+
+    # Resize viewport to simulate CSS pixel shrinkage from zoom
+    page.set_viewport_size({"width": 800, "height": 600})
+
+    # Wait for DPR polling (200ms) + rAF + render time
+    time.sleep(1)
+
+    # Verify canvas is still fully filled after DPR change
+    after_fill = page.evaluate("""() => {
+        const canvas = document.querySelector('.slope-grid-canvas');
+        if (!canvas) return { error: 'no canvas' };
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        let filled = 0, total = 0;
+        for (let y = 0; y < h; y += 10) {
+            for (let x = 0; x < w; x += 10) {
+                const p = ctx.getImageData(x, y, 1, 1).data;
+                total++;
+                if (p[3] > 0) filled++;
+            }
+        }
+        return { filled, total, pct: (filled / total * 100), w, h };
+    }""")
+    assert after_fill["pct"] > 95, (
+        f"After DPR change, fill rate dropped to {after_fill['pct']:.1f}% "
+        f"(canvas {after_fill['w']}x{after_fill['h']}). "
+        f"Expected >95% — slope shading has gaps/stripes."
+    )
+
+    # Verify canvas backing store matches expected DPR scaling
+    canvas_dims = page.evaluate("""() => {
+        const canvas = document.querySelector('.slope-grid-canvas');
+        const mapEl = document.getElementById('map');
+        const rect = mapEl.getBoundingClientRect();
+        return {
+            canvasW: canvas.width,
+            canvasH: canvas.height,
+            cssW: parseFloat(canvas.style.width),
+            cssH: parseFloat(canvas.style.height),
+            mapW: rect.width,
+            mapH: rect.height,
+            dpr: window.devicePixelRatio,
+        };
+    }""")
+    expected_backing = round(canvas_dims["cssW"] * canvas_dims["dpr"])
+    assert abs(canvas_dims["canvasW"] - expected_backing) <= 1, (
+        f"Canvas backing store {canvas_dims['canvasW']} doesn't match "
+        f"CSS width {canvas_dims['cssW']} * DPR {canvas_dims['dpr']} "
+        f"= {expected_backing}"
+    )

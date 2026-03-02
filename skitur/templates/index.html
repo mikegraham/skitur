@@ -57,11 +57,29 @@
                                            border-radius: 8px; padding: 8px;
                                            box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
         #bottom-charts-row { display: flex; gap: 16px; margin-bottom: 16px; }
-        #violin-chart, #histogram-chart { min-height: 220px; background: white; border-radius: 8px;
+        #violin-chart, #histogram-chart, #aspect-rose-chart, #aspect-dist-chart { min-height: 220px; background: white; border-radius: 8px;
                            padding: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
 
         .contour-label { background: none; border: none; }
         .contour-label span { font-size: 9px; color: #333; padding: 0; }
+
+        /* ── Responsive: single column on narrow screens ─────────── */
+        @media (max-width: 700px) {
+            #results-section { padding: 12px; }
+            #info-row { flex-direction: column; }
+            #charts-row { flex-direction: column; }
+            #bottom-charts-row { flex-direction: column; }
+            .aspect-charts-row { flex-direction: column !important; }
+
+            /* Map row: hide legends, let map fill width */
+            #ground-legend, #track-legend { display: none; }
+            #map { aspect-ratio: 1 / 1; }
+        }
+
+        /* Mid-width: skinnier legend bars so map gets more room */
+        @media (max-width: 900px) and (min-width: 701px) {
+            #ground-legend, #track-legend { width: 50px; font-size: 9px; }
+        }
     </style>
 </head>
 <body>
@@ -111,6 +129,16 @@
             <div class="chart-wrapper">
                 <div class="chart-label">Ground Angle Distribution</div>
                 <div id="histogram-chart"></div>
+            </div>
+        </div>
+        <div class="aspect-charts-row" style="display: flex; gap: 16px; margin-bottom: 16px;">
+            <div class="chart-wrapper" style="flex: 1 1 50%;">
+                <div class="chart-label">Aspect Rose</div>
+                <div id="aspect-rose-chart"></div>
+            </div>
+            <div class="chart-wrapper" style="flex: 1 1 50%;">
+                <div class="chart-label">Aspect Distribution</div>
+                <div id="aspect-dist-chart"></div>
             </div>
         </div>
 
@@ -307,6 +335,8 @@ function renderResults(data, filename) {
         try { renderSlopesChart(data.track); } catch(e) { console.error("renderSlopesChart:", e); }
         try { renderTrackDistribution(data.track); } catch(e) { console.error("renderTrackDistribution:", e); }
         try { renderGroundDistribution(data.track); } catch(e) { console.error("renderGroundDistribution:", e); }
+        try { renderAspectRose(data); } catch(e) { console.error("renderAspectRose:", e); }
+        try { renderAspectDist(data); } catch(e) { console.error("renderAspectDist:", e); }
     });
 }
 
@@ -384,31 +414,33 @@ const GradientTrackLayer = L.Layer.extend({
         this._canvas.style.pointerEvents = "none";
         map.getPanes().overlayPane.appendChild(this._canvas);
         map.on("moveend zoomend resize", this._redraw, this);
-        // Re-render on browser zoom (Ctrl+/-) which changes DPR
-        this._dprQuery = window.matchMedia(
-            `(resolution: ${window.devicePixelRatio}dppx)`);
-        this._onDprChange = () => {
-            this._dprQuery = window.matchMedia(
-                `(resolution: ${window.devicePixelRatio}dppx)`);
-            this._dprQuery.addEventListener("change", this._onDprChange, { once: true });
-            this._redraw();
-        };
-        this._dprQuery.addEventListener("change", this._onDprChange, { once: true });
+        // Poll DPR to detect browser zoom (Ctrl+/-) changes reliably.
+        this._lastDpr = window.devicePixelRatio || 1;
+        this._dprInterval = setInterval(() => {
+            const dpr = window.devicePixelRatio || 1;
+            if (dpr !== this._lastDpr) {
+                this._lastDpr = dpr;
+                // Browser zoom changes container CSS-pixel size; tell Leaflet
+                // so map.getSize() returns correct values for the redraw.
+                this._map.invalidateSize({ debounceMoveend: true });
+                this._redraw();
+            }
+        }, 200);
         this._redraw();
     },
 
     onRemove(map) {
         L.DomUtil.remove(this._canvas);
         map.off("moveend zoomend resize", this._redraw, this);
-        if (this._dprQuery) {
-            this._dprQuery.removeEventListener("change", this._onDprChange);
-        }
+        if (this._dprInterval) { clearInterval(this._dprInterval); this._dprInterval = null; }
     },
 
     _redraw() {
         const map = this._map;
         const track = this._track;
         const size = map.getSize();
+        if (size.x <= 0 || size.y <= 0) return; // container not yet laid out
+
         const topLeft = map.containerPointToLayerPoint([0, 0]);
         L.DomUtil.setPosition(this._canvas, topLeft);
 
@@ -502,26 +534,26 @@ const SlopeGridLayer = L.Layer.extend({
         map.getPanes().overlayPane.appendChild(this._canvas);
         map.on("moveend zoomend resize", this._scheduleRedraw, this);
         // Browser zoom (Ctrl+/-) changes devicePixelRatio without firing
-        // Leaflet events. Detect DPR changes and redraw.
-        this._dprQuery = window.matchMedia(
-            `(resolution: ${window.devicePixelRatio}dppx)`);
-        this._onDprChange = () => {
-            // Re-create the media query for the new DPR
-            this._dprQuery = window.matchMedia(
-                `(resolution: ${window.devicePixelRatio}dppx)`);
-            this._dprQuery.addEventListener("change", this._onDprChange, { once: true });
-            this._scheduleRedraw();
-        };
-        this._dprQuery.addEventListener("change", this._onDprChange, { once: true });
+        // Leaflet events. Poll DPR to detect changes reliably — the
+        // matchMedia('resolution') approach missed rapid successive zooms.
+        this._lastDpr = window.devicePixelRatio || 1;
+        this._dprInterval = setInterval(() => {
+            const dpr = window.devicePixelRatio || 1;
+            if (dpr !== this._lastDpr) {
+                this._lastDpr = dpr;
+                // Browser zoom changes container CSS-pixel size; tell Leaflet
+                // so map.getSize() returns correct values for the redraw.
+                this._map.invalidateSize({ debounceMoveend: true });
+                this._scheduleRedraw();
+            }
+        }, 200);
         this._scheduleRedraw();
     },
 
     onRemove(map) {
         L.DomUtil.remove(this._canvas);
         map.off("moveend zoomend resize", this._scheduleRedraw, this);
-        if (this._dprQuery) {
-            this._dprQuery.removeEventListener("change", this._onDprChange);
-        }
+        if (this._dprInterval) { clearInterval(this._dprInterval); this._dprInterval = null; }
         if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
     },
 
@@ -540,11 +572,13 @@ const SlopeGridLayer = L.Layer.extend({
         const map = this._map;
         const g = this._grid;
         const size = map.getSize();
+        const w = size.x, h = size.y;
+        if (w <= 0 || h <= 0) return; // container not yet laid out
+
         const topLeft = map.containerPointToLayerPoint([0, 0]);
         L.DomUtil.setPosition(this._canvas, topLeft);
 
         const dpr = window.devicePixelRatio || 1;
-        const w = size.x, h = size.y;
         this._canvas.width = w * dpr;
         this._canvas.height = h * dpr;
         this._canvas.style.width = w + "px";
@@ -952,6 +986,14 @@ function renderMap(track, slopeGrid, contours) {
         }
     }
     map.on("moveend", clampToGrid);
+
+    // visualViewport.resize fires reliably on browser zoom (Ctrl+/-)
+    // across all modern browsers, complementing the per-layer DPR polling.
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", function() {
+            map.invalidateSize({ debounceMoveend: true });
+        });
+    }
 }
 
 // ── Cross-link: chart hover → map marker ───────────────────────────
@@ -1044,7 +1086,7 @@ function renderElevationChart(track) {
                          Math.max(...elevations.filter(e => e != null))] },
         showlegend: false,
         margin: { t: 10, r: 5, b: 35, l: 40 },
-        hovermode: "closest",
+        hovermode: "x",
     };
 
     Plotly.newPlot("elevation-chart", [bgTrace, ...lineTraces, hoverTrace], layout, { responsive: true, displaylogo: false });
@@ -1129,7 +1171,7 @@ function renderSlopesChart(track) {
         showlegend: true,
         legend: { x: 1.0, y: 1.0, xanchor: "right" },
         margin: { t: 10, r: 45, b: 35, l: 40 },
-        hovermode: "closest",
+        hovermode: "x",
     };
 
     Plotly.newPlot("slopes-chart", [groundTrace, trackTrace, hoverTrace], layout, { responsive: true, displaylogo: false });
@@ -1293,6 +1335,242 @@ function renderGroundDistribution(track) {
     };
 
     Plotly.newPlot("histogram-chart", [trace], layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage"] });
+}
+
+// ── Plotly: Aspect Rose (Polar Heatmap) ───────────────────────────
+function renderAspectRose(data) {
+    const track = data.track;
+
+    // Filter points with both ground_slope and ground_aspect
+    const validPoints = track.filter(p => p.ground_slope != null && p.ground_aspect != null);
+    if (validPoints.length === 0) return;
+
+    function groundColorStr(deg) {
+        const rgba = groundSlopeRGBA(deg);
+        return `rgb(${rgba[0]},${rgba[1]},${rgba[2]})`;
+    }
+
+    // 16 angular bins (22.5 deg each)
+    const DIR_LABELS = ["N","NNE","NE","ENE","E","ESE","SE","SSE",
+                        "S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    const N_DIRS = 16;
+    const DIR_WIDTH = 360 / N_DIRS; // 22.5 degrees
+
+    // Radial bins: 15-degree slope increments (0-15, 15-30, 30-45)
+    const SLOPE_BIN_SIZE = 15;
+    const MAX_SLOPE = 45;
+    const N_SLOPE_BINS = Math.ceil(MAX_SLOPE / SLOPE_BIN_SIZE); // 25 bins
+
+    // Compute segment distances for weighting
+    // Each point's "distance" is cumulative; segment length = distance[i] - distance[i-1]
+    const segDist = validPoints.map((p, i) => {
+        if (i === 0) return 0;
+        return p.distance - validPoints[i - 1].distance;
+    });
+    const totalDist = segDist.reduce((a, b) => a + b, 0) || 1;
+
+    // Build the 2D histogram: [dirBin][slopeBin] = weighted distance fraction
+    const grid = Array.from({length: N_DIRS}, () => new Float64Array(N_SLOPE_BINS));
+
+    for (let i = 0; i < validPoints.length; i++) {
+        const p = validPoints[i];
+        const weight = segDist[i] / totalDist;
+
+        // Direction bin: aspect 0=N centered on bin 0
+        let dirBin = Math.round(p.ground_aspect / DIR_WIDTH) % N_DIRS;
+        if (dirBin < 0) dirBin += N_DIRS;
+
+        // Slope bin
+        let slopeBin = Math.floor(p.ground_slope / SLOPE_BIN_SIZE);
+        if (slopeBin >= N_SLOPE_BINS) slopeBin = N_SLOPE_BINS - 1;
+        if (slopeBin < 0) slopeBin = 0;
+
+        grid[dirBin][slopeBin] += weight * 100; // percentage
+    }
+
+    // Find max density for opacity normalization and max occupied slope
+    let maxDensity = 0;
+    let maxOccupiedSlope = 0;
+    for (let d = 0; d < N_DIRS; d++) {
+        for (let s = 0; s < N_SLOPE_BINS; s++) {
+            if (grid[d][s] > maxDensity) maxDensity = grid[d][s];
+            if (grid[d][s] > 0) maxOccupiedSlope = Math.max(maxOccupiedSlope, (s + 1) * SLOPE_BIN_SIZE);
+        }
+    }
+    if (maxDensity === 0) return;
+
+    // Radial range matches bin edges: always show at least 0-30 (avy band),
+    // extend to 45 if there's data above 30.
+    const radialMax = maxOccupiedSlope > 30 ? 45 : 30;
+    const tickVals = [];
+    const tickText = [];
+    for (let v = 0; v <= radialMax; v += SLOPE_BIN_SIZE) {
+        tickVals.push(v);
+        tickText.push(v + "\u00b0");
+    }
+
+    // Build barpolar traces — one trace per slope bin so each ring has
+    // a consistent color (the slope's ground colormap color).
+    const MIN_OPACITY = 0.25;
+    const traces = [];
+    for (let s = 0; s < N_SLOPE_BINS; s++) {
+        if (s * SLOPE_BIN_SIZE >= radialMax) break;
+        const slopeMid = s * SLOPE_BIN_SIZE + SLOPE_BIN_SIZE / 2;
+        const color = groundColorStr(slopeMid);
+
+        const r = [];
+        const theta = [];
+        const opacity = [];
+        const hoverText = [];
+
+        for (let d = 0; d < N_DIRS; d++) {
+            const val = grid[d][s];
+            if (val === 0) continue;
+
+            r.push(SLOPE_BIN_SIZE);
+            theta.push(d * DIR_WIDTH);
+            // Opacity: floor at MIN_OPACITY, scale linearly to 1.0
+            opacity.push(MIN_OPACITY + (1 - MIN_OPACITY) * (val / maxDensity));
+            const slopeRange = `${s * SLOPE_BIN_SIZE}\u2013${(s + 1) * SLOPE_BIN_SIZE}`;
+            hoverText.push(`${DIR_LABELS[d]}, ${slopeRange}\u00b0: ${val.toFixed(1)}% of track`);
+        }
+
+        if (r.length === 0) continue;
+
+        traces.push({
+            type: "barpolar",
+            r: r,
+            theta: theta,
+            width: Array(r.length).fill(DIR_WIDTH),
+            base: Array(r.length).fill(s * SLOPE_BIN_SIZE),
+            marker: {
+                color: r.map(() => color),
+                opacity: opacity,
+                line: { width: 0 },
+            },
+            hovertext: hoverText,
+            hoverinfo: "text",
+            showlegend: false,
+        });
+    }
+
+    const layout = {
+        polar: {
+            radialaxis: {
+                range: [0, radialMax],
+                tickvals: tickVals,
+                ticktext: tickText,
+                showline: false,
+                gridcolor: "rgba(0,0,0,0.15)",
+                tickfont: { size: 9, color: "#999" },
+                angle: 45, // put tick labels at 45 deg to avoid overlap
+            },
+            angularaxis: {
+                direction: "clockwise",
+                rotation: 90,
+                tickvals: [0, 45, 90, 135, 180, 225, 270, 315],
+                ticktext: ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
+                tickfont: { size: 11, color: "#555" },
+                gridcolor: "rgba(0,0,0,0.1)",
+            },
+            bgcolor: "white",
+        },
+        margin: { t: 10, r: 40, b: 10, l: 40 },
+        showlegend: false,
+    };
+
+    Plotly.newPlot("aspect-rose-chart", traces, layout, {
+        responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage"],
+    });
+}
+
+function renderAspectDist(data) {
+    const track = data.track;
+    const validPoints = track.filter(p => p.ground_slope != null && p.ground_aspect != null);
+    if (validPoints.length === 0) return;
+
+    const DIR_LABELS = ["N","NNE","NE","ENE","E","ESE","SE","SSE",
+                        "S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    const N_DIRS = 16;
+    const DIR_WIDTH = 360 / N_DIRS;
+    const STEEP_THRESHOLD = 30;
+
+    // Segment distances
+    const segDist = validPoints.map((p, i) =>
+        i === 0 ? 0 : p.distance - validPoints[i - 1].distance);
+    const totalDist = segDist.reduce((a, b) => a + b, 0) || 1;
+
+    // Accumulate total and steep (>=30) distance per direction
+    const totalByDir = new Float64Array(N_DIRS);
+    const steepByDir = new Float64Array(N_DIRS);
+
+    for (let i = 0; i < validPoints.length; i++) {
+        const p = validPoints[i];
+        const pct = (segDist[i] / totalDist) * 100;
+        let dirBin = Math.round(p.ground_aspect / DIR_WIDTH) % N_DIRS;
+        if (dirBin < 0) dirBin += N_DIRS;
+        totalByDir[dirBin] += pct;
+        if (p.ground_slope >= STEEP_THRESHOLD) steepByDir[dirBin] += pct;
+    }
+
+    const gentleByDir = totalByDir.map((t, i) => t - steepByDir[i]);
+
+    // Build two stacked barpolar traces: <30 (green) on bottom, >=30 (red) on top
+    const theta = DIR_LABELS.map((_, i) => i * DIR_WIDTH);
+
+    const gentleTrace = {
+        type: "barpolar",
+        r: Array.from(gentleByDir),
+        theta: theta,
+        width: Array(N_DIRS).fill(DIR_WIDTH),
+        marker: { color: "rgba(76, 175, 80, 0.7)", line: { width: 0 } },
+        name: "< 30\u00b0",
+        hovertext: DIR_LABELS.map((lbl, i) =>
+            `${lbl}: ${gentleByDir[i].toFixed(1)}% < 30\u00b0`),
+        hoverinfo: "text",
+    };
+
+    const steepTrace = {
+        type: "barpolar",
+        r: Array.from(steepByDir),
+        theta: theta,
+        width: Array(N_DIRS).fill(DIR_WIDTH),
+        base: Array.from(gentleByDir),
+        marker: { color: "rgba(211, 47, 47, 0.8)", line: { width: 0 } },
+        name: "\u2265 30\u00b0",
+        hovertext: DIR_LABELS.map((lbl, i) =>
+            `${lbl}: ${steepByDir[i].toFixed(1)}% \u2265 30\u00b0 (${totalByDir[i].toFixed(1)}% total)`),
+        hoverinfo: "text",
+    };
+
+    const layout = {
+        polar: {
+            radialaxis: {
+                ticksuffix: "%",
+                showline: false,
+                gridcolor: "rgba(0,0,0,0.15)",
+                tickfont: { size: 9, color: "#999" },
+                angle: 45,
+            },
+            angularaxis: {
+                direction: "clockwise",
+                rotation: 90,
+                tickvals: [0, 45, 90, 135, 180, 225, 270, 315],
+                ticktext: ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
+                tickfont: { size: 11, color: "#555" },
+                gridcolor: "rgba(0,0,0,0.1)",
+            },
+            bgcolor: "white",
+            barmode: "stack",
+        },
+        margin: { t: 10, r: 40, b: 10, l: 40 },
+        showlegend: true,
+        legend: { x: 0.95, y: 0.95, font: { size: 10 } },
+    };
+
+    Plotly.newPlot("aspect-dist-chart", [gentleTrace, steepTrace], layout, {
+        responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage"],
+    });
 }
 </script>
 </body>
