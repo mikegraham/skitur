@@ -763,7 +763,7 @@ function renderMap(track, slopeGrid, contours) {
     const mapEl = document.getElementById("map");
     // CSS aspect-ratio: 1/1 controls the square shape
 
-    map = L.map("map", { attributionControl: false, zoomSnap: 0 });
+    map = L.map("map", { attributionControl: false, zoomSnap: 0, maxBoundsViscosity: 1.0 });
 
     // Slope angle shading as the base layer (fully opaque)
     if (slopeGrid) {
@@ -870,7 +870,39 @@ function renderMap(track, slopeGrid, contours) {
     map.fitBounds(gridBounds, { padding: [0, 0] });
     const gridZoom = map.getZoom();
     map.setMinZoom(gridZoom);
-    map.setMaxBounds(gridBounds.pad(0.1));
+
+    // Constrain viewport so edges never leave the grid (not just center).
+    // Leaflet's maxBounds only constrains the center, so we clamp the
+    // center inward by half the viewport extent on each moveend.
+    // Guard against re-entrant panTo → moveend cycles by keeping the
+    // flag set until the stack unwinds.
+    let _clamping = false;
+    function clampToGrid() {
+        if (_clamping) return;
+        _clamping = true;
+        try {
+            const vb = map.getBounds();
+            const vLatSpan = vb.getNorth() - vb.getSouth();
+            const vLngSpan = vb.getEast() - vb.getWest();
+            const center = map.getCenter();
+            let lat = center.lat;
+            let lng = center.lng;
+            const minLat = gridBounds.getSouth() + vLatSpan / 2;
+            const maxLat = gridBounds.getNorth() - vLatSpan / 2;
+            const minLng = gridBounds.getWest() + vLngSpan / 2;
+            const maxLng = gridBounds.getEast() - vLngSpan / 2;
+            if (minLat < maxLat) lat = Math.max(minLat, Math.min(maxLat, lat));
+            if (minLng < maxLng) lng = Math.max(minLng, Math.min(maxLng, lng));
+            if (lat !== center.lat || lng !== center.lng) {
+                map.panTo([lat, lng], { animate: false });
+            }
+        } finally {
+            // Defer clearing the flag so synchronous re-entrant moveend
+            // events from panTo are still blocked.
+            setTimeout(() => { _clamping = false; }, 0);
+        }
+    }
+    map.on("moveend", clampToGrid);
 
     // Default view: track barely fits with minimal buffer
     const trackBounds = L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.075);
