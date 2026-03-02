@@ -466,13 +466,25 @@ const SlopeGridLayer = L.Layer.extend({
         this._canvas.style.position = "absolute";
         this._canvas.style.pointerEvents = "none";
         map.getPanes().overlayPane.appendChild(this._canvas);
-        map.on("moveend zoomend resize", this._redraw, this);
-        this._redraw();
+        map.on("moveend zoomend resize", this._scheduleRedraw, this);
+        this._scheduleRedraw();
     },
 
     onRemove(map) {
         L.DomUtil.remove(this._canvas);
-        map.off("moveend zoomend resize", this._redraw, this);
+        map.off("moveend zoomend resize", this._scheduleRedraw, this);
+        if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+    },
+
+    // Coalesce rapid moveend/zoomend events into a single redraw per
+    // animation frame. Fixes flaky rendering in Firefox where multiple
+    // events during zoom animations would clobber in-progress draws.
+    _scheduleRedraw() {
+        if (this._rafId) cancelAnimationFrame(this._rafId);
+        this._rafId = requestAnimationFrame(() => {
+            this._rafId = null;
+            this._redraw();
+        });
     },
 
     _redraw() {
@@ -618,7 +630,8 @@ function _drawCanvasLegend(container, opts) {
 
         function drawTicks(ticks, side) {
             for (const t of ticks) {
-                const y = Math.round(barTop + barH * (1 - t.frac)) + 0.5;
+                // Map frac 0→barBottom, 1→barTop, aligned to bar edges
+                const y = Math.round(barTop + (barH - 1) * (1 - t.frac)) + 0.5;
                 const tickLen = t.label ? 6 : 3;
                 ctx.beginPath();
                 if (side === "right") {

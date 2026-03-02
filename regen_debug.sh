@@ -47,7 +47,7 @@ inject += 'document.addEventListener(\"DOMContentLoaded\", function() {\n'
 inject += '    const data = ' + data_json + ';\n'
 inject += '    trackData = data;\n'
 inject += '    document.getElementById(\"upload-section\").style.display = \"none\";\n'
-inject += '    renderResults(data, \"Twin_Lakes.gpx\");\n'
+inject += '    renderResults(data, \"' + '$(basename "$GPX_FILE")' + '\");\n'
 inject += '});\n'
 inject += '</script>'
 
