@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project artifacts
+*.png
+*_output/
+*_report.html
+debug.html
+_profile_tmp/
+
+# Caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Vim undo
+*.un~
+
+# Profiling
+prof.out
+
+# Claude / misc
+.claude/
+upstream/
+okuteine_debug.html
+bench_dem.py

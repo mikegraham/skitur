@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Skitur</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.plot.ly/plotly-3.3.1.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+               background: #f5f5f5; color: #333; }
+
+        #upload-section { max-width: 500px; margin: 100px auto; text-align: center;
+                          padding: 40px; background: white; border-radius: 8px;
+                          box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        #upload-section h1 { font-size: 2em; margin-bottom: 4px; }
+        #upload-section p { color: #666; margin-bottom: 20px; }
+        #upload-form { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+        #analyze-btn { padding: 10px 30px; background: #2563eb; color: white;
+                       border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
+        #analyze-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        #loading { margin-top: 20px; color: #666; display: none; }
+        #error { margin-top: 20px; color: #dc2626; display: none; }
+
+        #results-section { max-width: 1100px; margin: 0 auto; padding: 20px; display: none; }
+        #header-bar { display: flex; justify-content: space-between;
+                      align-items: center; margin-bottom: 16px; }
+        #header-bar h2 { font-size: 1.5em; }
+        #new-upload-btn { padding: 8px 16px; background: #e5e7eb; border: none;
+                          border-radius: 4px; cursor: pointer; }
+        #new-upload-btn:hover { background: #d1d5db; }
+
+        #info-row { display: flex; gap: 16px; margin-bottom: 16px; }
+        #score-panel, #stats-panel { flex: 1; background: white; padding: 20px;
+                                      border-radius: 8px;
+                                      box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        #score-panel h3, #stats-panel h3 { margin-bottom: 12px; font-size: 1.1em; }
+        .score-total { font-size: 2.5em; font-weight: bold; margin-bottom: 12px; }
+        .score-bar { height: 8px; background: #e5e7eb; border-radius: 4px; margin: 4px 0 8px; }
+        .score-bar-fill { height: 100%; border-radius: 4px; }
+        .stats-table { width: 100%; border-collapse: collapse; }
+        .stats-table td { padding: 4px 0; font-size: 0.95em; }
+        .stats-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+        #map-row { display: flex; gap: 8px; margin-bottom: 16px; align-items: stretch; }
+        #map { flex: 1; aspect-ratio: 1 / 1; border-radius: 8px;
+               box-shadow: 0 1px 4px rgba(0,0,0,0.1); background: #e8e8e8; }
+        #ground-legend, #track-legend { width: 80px; font-size: 10px; padding: 4px 0; display: flex; flex-direction: column; }
+        .legend-title { font-size: 11px; font-weight: bold; text-align: center; margin-bottom: 4px; }
+
+        #charts-row { display: flex; gap: 16px; margin-bottom: 16px; }
+        .chart-wrapper { flex: 1; }
+        .chart-label { font-weight: 600; font-size: 0.95em; margin-bottom: 4px; color: #333; }
+        #elevation-chart, #slopes-chart { min-height: 220px; background: white;
+                                           border-radius: 8px; padding: 8px;
+                                           box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        #bottom-charts-row { display: flex; gap: 16px; margin-bottom: 16px; }
+        #violin-chart, #histogram-chart { min-height: 220px; background: white; border-radius: 8px;
+                           padding: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+
+        .contour-label { background: none; border: none; }
+        .contour-label span { font-size: 9px; color: #333; padding: 0; }
+    </style>
+</head>
+<body>
+    <div id="upload-section">
+        <h1>Skitur</h1>
+        <p>Upload a GPX file to analyze your XC ski tour.</p>
+        <form id="upload-form">
+            <input type="file" id="gpx-input" accept=".gpx" />
+            <button type="submit" id="analyze-btn">Analyze</button>
+        </form>
+        <div id="loading">Analyzing track (may take 10-30s for DEM download)...</div>
+        <div id="error"></div>
+    </div>
+
+    <div id="results-section">
+        <div id="header-bar">
+            <h2 id="tour-name"></h2>
+            <button id="new-upload-btn">Analyze Another</button>
+        </div>
+
+        <div id="info-row">
+            <div id="score-panel"></div>
+            <div id="stats-panel"></div>
+        </div>
+
+        <div id="map-row">
+            <div id="ground-legend"></div>
+            <div id="map"></div>
+            <div id="track-legend"></div>
+        </div>
+
+        <div id="charts-row">
+            <div class="chart-wrapper">
+                <div class="chart-label">Elevation Profile</div>
+                <div id="elevation-chart"></div>
+            </div>
+            <div class="chart-wrapper">
+                <div class="chart-label">Slope Profile</div>
+                <div id="slopes-chart"></div>
+            </div>
+        </div>
+        <div id="bottom-charts-row">
+            <div class="chart-wrapper">
+                <div class="chart-label">Track Slope Distribution</div>
+                <div id="violin-chart"></div>
+            </div>
+            <div class="chart-wrapper">
+                <div class="chart-label">Ground Angle Distribution</div>
+                <div id="histogram-chart"></div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────
+const M_TO_FT = 3.28084;
+const KM_TO_MI = 0.621371;
+
+// Track slope colormap anchors: 0-20° range, saturates to black at 20°
+const TRACK_CMAP_ANCHORS = [
+    [0/20,    [0.15, 0.75, 0.15]],  // 0°: green
+    [2/20,    [0.15, 0.75, 0.15]],  // 2°: green
+    [4.5/20,  [1.0,  0.92, 0.0]],   // 4.5°: yellow
+    [6/20,    [1.0,  0.65, 0.0]],   // 6°: orange-yellow
+    [8/20,    [1.0,  0.35, 0.0]],   // 8°: orange
+    [11/20,   [0.85, 0.08, 0.0]],   // 11°: red-orange
+    [13/20,   [0.65, 0.0,  0.0]],   // 13°: red
+    [15/20,   [0.35, 0.0,  0.0]],   // 15°: dark red
+    [1.0,     [0.0,  0.0,  0.0]],   // 20°: black
+];
+
+function slopeToColor(slopeDeg) {
+    const t = Math.min(Math.max(Math.abs(slopeDeg), 0), 20) / 20;
+    let i = 0;
+    while (i < TRACK_CMAP_ANCHORS.length - 1 && TRACK_CMAP_ANCHORS[i + 1][0] <= t) i++;
+    if (i >= TRACK_CMAP_ANCHORS.length - 1) {
+        const c = TRACK_CMAP_ANCHORS[TRACK_CMAP_ANCHORS.length - 1][1];
+        return `rgb(${Math.round(c[0]*255)},${Math.round(c[1]*255)},${Math.round(c[2]*255)})`;
+    }
+    const [pos0, c0] = TRACK_CMAP_ANCHORS[i];
+    const [pos1, c1] = TRACK_CMAP_ANCHORS[i + 1];
+    const f = (t - pos0) / (pos1 - pos0);
+    const r = Math.round((c0[0] + f * (c1[0] - c0[0])) * 255);
+    const g = Math.round((c0[1] + f * (c1[1] - c0[1])) * 255);
+    const b = Math.round((c0[2] + f * (c1[2] - c0[2])) * 255);
+    return `rgb(${r},${g},${b})`;
+}
+
+// Ground slope colormap — hard transitions at 30° and 45°.
+//   0-25   : milky/faint teal -> green -> yellow (safe terrain, very desaturated)
+//   25-30  : faint/muted orange warning zone     (approaching danger, still muted)
+//   30-45  : bold orange -> red -> dark red      (avalanche-prone, HIGH saturation)
+//   45+    : gray                                (rock/ice, too steep for snow)
+// Precompute a 256-entry lookup table: slope 0-47 deg -> [r,g,b,a] bytes
+const GROUND_CMAP = (function() {
+    const lut = new Uint8Array(256 * 4); // 256 entries x RGBA
+    for (let i = 0; i < 256; i++) {
+        const slope = (i / 255) * 47; // 0-47 degrees
+        let r, g, b;
+        if (slope < 25) {
+            // Milky/faint teal -> green -> yellow (very desaturated, pastel)
+            const t = slope / 25;
+            if (t < 0.5) {
+                // faint teal to faint green
+                const s = t / 0.5;
+                r = 0.70 + 0.05 * s;
+                g = 0.78 + 0.07 * s;
+                b = 0.72 - 0.12 * s;
+            } else {
+                // faint green to faint yellow
+                const s = (t - 0.5) / 0.5;
+                r = 0.75 + 0.10 * s;
+                g = 0.85 + 0.02 * s;
+                b = 0.60 - 0.22 * s;
+            }
+        } else if (slope < 30) {
+            // Muted orange warning zone (25-30 deg)
+            const t = (slope - 25) / 5;
+            r = 0.85 + 0.03 * t;
+            g = 0.72 - 0.12 * t;
+            b = 0.38 - 0.05 * t;
+        } else if (slope < 45) {
+            // HARD transition at 30 — bold orange -> red -> dark red
+            const t = (slope - 30) / 15;
+            if (t < 0.3) {
+                const s = t / 0.3;
+                r = 0.90 - 0.02 * s;
+                g = 0.25 - 0.05 * s;
+                b = 0.08 + 0.02 * s;
+            } else if (t < 0.65) {
+                const s = (t - 0.3) / 0.35;
+                r = 0.88 - 0.10 * s;
+                g = 0.20 - 0.05 * s;
+                b = 0.10 - 0.02 * s;
+            } else {
+                const s = (t - 0.65) / 0.35;
+                r = 0.78 - 0.23 * s;
+                g = 0.15 - 0.05 * s;
+                b = 0.08 - 0.02 * s;
+            }
+        } else {
+            // HARD transition at 45 — gray
+            r = 0.5; g = 0.5; b = 0.5;
+        }
+        lut[i * 4 + 0] = Math.round(r * 255);
+        lut[i * 4 + 1] = Math.round(g * 255);
+        lut[i * 4 + 2] = Math.round(b * 255);
+        lut[i * 4 + 3] = 255; // fully opaque
+    }
+    return lut;
+})();
+
+function groundSlopeRGBA(slopeDeg) {
+    const idx = Math.min(Math.max(Math.round((slopeDeg / 47) * 255), 0), 255);
+    return [GROUND_CMAP[idx*4], GROUND_CMAP[idx*4+1], GROUND_CMAP[idx*4+2], GROUND_CMAP[idx*4+3]];
+}
+
+function scoreColor(val) {
+    if (val >= 80) return "#16a34a";
+    if (val >= 60) return "#ca8a04";
+    if (val >= 40) return "#ea580c";
+    return "#dc2626";
+}
+
+// ── State ──────────────────────────────────────────────────────────
+let trackData = null;
+let map = null;
+let hoverMarker = null;
+
+// ── Upload ─────────────────────────────────────────────────────────
+document.getElementById("upload-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById("gpx-input");
+    if (!fileInput.files.length) return;
+
+    const formData = new FormData();
+    formData.append("gpx_file", fileInput.files[0]);
+
+    document.getElementById("loading").style.display = "block";
+    document.getElementById("error").style.display = "none";
+    document.getElementById("analyze-btn").disabled = true;
+
+    try {
+        const resp = await fetch("/api/analyze", { method: "POST", body: formData });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Analysis failed");
+        trackData = data;
+        renderResults(data, fileInput.files[0].name);
+    } catch (err) {
+        document.getElementById("error").textContent = err.message;
+        document.getElementById("error").style.display = "block";
+    } finally {
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("analyze-btn").disabled = false;
+    }
+});
+
+document.getElementById("new-upload-btn").addEventListener("click", () => {
+    document.getElementById("results-section").style.display = "none";
+    document.getElementById("upload-section").style.display = "block";
+    document.getElementById("gpx-input").value = "";
+    trackData = null;
+});
+
+// ── Render Results ─────────────────────────────────────────────────
+function renderResults(data, filename) {
+    document.getElementById("upload-section").style.display = "none";
+    document.getElementById("results-section").style.display = "block";
+    document.getElementById("tour-name").textContent =
+        filename.replace(".gpx", "").replace(/_/g, " ");
+
+    renderScore(data.score);
+    renderStats(data.stats);
+    renderLegends();
+
+    // Defer map/chart rendering until after the browser has laid out the
+    // now-visible results section — Leaflet and Plotly need non-zero
+    // container dimensions to render correctly.
+    requestAnimationFrame(() => {
+        try { renderMap(data.track, data.slope_grid, data.contours); } catch(e) { console.error("renderMap:", e); }
+        try { renderElevationChart(data.track); } catch(e) { console.error("renderElevationChart:", e); }
+        try { renderSlopesChart(data.track); } catch(e) { console.error("renderSlopesChart:", e); }
+        try { renderTrackDistribution(data.track); } catch(e) { console.error("renderTrackDistribution:", e); }
+        try { renderGroundDistribution(data.track); } catch(e) { console.error("renderGroundDistribution:", e); }
+    });
+}
+
+// ── Score Panel ────────────────────────────────────────────────────
+function renderScore(score) {
+    const panel = document.getElementById("score-panel");
+    function bar(label, value) {
+        const pct = Math.max(0, Math.min(value, 100));
+        return `<div style="margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;font-size:0.9em;">
+                <span>${label}</span><span>${value.toFixed(0)}/100</span>
+            </div>
+            <div class="score-bar">
+                <div class="score-bar-fill"
+                     style="width:${pct}%;background:${scoreColor(value)}"></div>
+            </div>
+        </div>`;
+    }
+    panel.innerHTML = `
+        <h3>Tour Quality Score</h3>
+        <div class="score-total" style="color:${scoreColor(score.total)}">
+            ${score.total.toFixed(0)}<span style="font-size:0.4em;color:#999">/100</span>
+        </div>
+        ${score.avg_downhill_slope > 0 ? bar("Downhill fun", score.downhill_quality) : ""}
+        ${score.avg_uphill_slope > 0 ? bar("Uphill doability", score.uphill_quality) : ""}
+        ${bar("Avalanche exposure <a href='https://avtraining.org/' target='_blank' rel='noopener' style='color:#4a90d9;font-size:0.8em;text-decoration:underline;'>(Don't trust us!)</a>", score.avy_exposure)}
+        <div style="margin-top:8px;font-size:0.85em;color:#666;">
+            Avg downhill: ${score.avg_downhill_slope.toFixed(1)}&deg; &middot;
+            Avg uphill: ${score.avg_uphill_slope.toFixed(1)}&deg; &middot;
+            Track on 30-45&deg; ground: ${score.pct_avy_terrain.toFixed(1)}% &middot;
+            Under avy slopes: ${score.pct_runout_exposed.toFixed(1)}%
+        </div>`;
+}
+
+// ── Stats Panel ────────────────────────────────────────────────────
+function renderStats(stats) {
+    const panel = document.getElementById("stats-panel");
+    const distMi = (stats.total_distance_m / 1000) * KM_TO_MI;
+    const distKm = stats.total_distance_m / 1000;
+    const gainFt = stats.elevation_gain_m * M_TO_FT;
+    const lossFt = stats.elevation_loss_m * M_TO_FT;
+    const minFt = stats.min_elevation_m != null ? (stats.min_elevation_m * M_TO_FT).toFixed(0) : "?";
+    const maxFt = stats.max_elevation_m != null ? (stats.max_elevation_m * M_TO_FT).toFixed(0) : "?";
+
+    function row(label, value) {
+        return `<tr><td>${label}</td><td>${value}</td></tr>`;
+    }
+    panel.innerHTML = `
+        <h3>Track Statistics</h3>
+        <table class="stats-table">
+            ${row("Distance", `${distMi.toFixed(1)} mi (${distKm.toFixed(1)} km)`)}
+            ${row("Elevation range", `${minFt} &ndash; ${maxFt} ft`)}
+            ${row("Elevation gain", `${gainFt.toFixed(0)} ft`)}
+            ${row("Elevation loss", `${lossFt.toFixed(0)} ft`)}
+            ${row("Uphill avg / max", `${stats.uphill_avg.toFixed(1)}&deg; / ${stats.uphill_max.toFixed(1)}&deg;`)}
+            ${row("Downhill avg / max", `${stats.downhill_avg.toFixed(1)}&deg; / ${stats.downhill_max.toFixed(1)}&deg;`)}
+            ${row("GPS points", stats.num_points)}
+        </table>`;
+}
+
+// ── Gradient Track Layer ───────────────────────────────────────────
+// Custom Leaflet canvas layer that draws the track as a single continuous
+// path with smooth color transitions and proper miter joins — no gaps,
+// no overlapping dots, no caterpillar artifacts.
+const GradientTrackLayer = L.Layer.extend({
+    initialize(track, options) {
+        this._track = track;
+        L.setOptions(this, options);
+    },
+
+    onAdd(map) {
+        this._map = map;
+        this._canvas = L.DomUtil.create("canvas", "gradient-track-canvas");
+        this._canvas.style.position = "absolute";
+        this._canvas.style.pointerEvents = "none";
+        map.getPanes().overlayPane.appendChild(this._canvas);
+        map.on("moveend zoomend resize", this._redraw, this);
+        this._redraw();
+    },
+
+    onRemove(map) {
+        L.DomUtil.remove(this._canvas);
+        map.off("moveend zoomend resize", this._redraw, this);
+    },
+
+    _redraw() {
+        const map = this._map;
+        const track = this._track;
+        const size = map.getSize();
+        const topLeft = map.containerPointToLayerPoint([0, 0]);
+        L.DomUtil.setPosition(this._canvas, topLeft);
+
+        const dpr = window.devicePixelRatio || 1;
+        this._canvas.width = size.x * dpr;
+        this._canvas.height = size.y * dpr;
+        this._canvas.style.width = size.x + "px";
+        this._canvas.style.height = size.y + "px";
+
+        const ctx = this._canvas.getContext("2d");
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, size.x, size.y);
+
+        if (track.length < 2) return;
+
+        // Convert lat/lon to pixel coordinates
+        const pts = track.map(p => {
+            const px = map.latLngToContainerPoint([p.lat, p.lon]);
+            return { x: px.x, y: px.y, slope: p.track_slope };
+        });
+
+        const lineWidth = 6;
+        const borderWidth = 8;
+
+        // Pass 1: white border — single continuous path with miter joins
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(pts[i].x, pts[i].y);
+        }
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = borderWidth;
+        ctx.lineJoin = "miter";
+        ctx.lineCap = "round";
+        ctx.miterLimit = 4;
+        ctx.stroke();
+
+        // Pass 2: colored segments with miter joins
+        // Draw each segment individually but use the adjacent segment
+        // directions to compute proper miter extensions at each vertex
+        ctx.lineWidth = lineWidth;
+        ctx.lineCap = "butt";
+        ctx.lineJoin = "miter";
+        ctx.miterLimit = 4;
+
+        for (let i = 0; i < pts.length - 1; i++) {
+            const slope = pts[i + 1].slope != null ? Math.abs(pts[i + 1].slope) : 0;
+            ctx.beginPath();
+            ctx.moveTo(pts[i].x, pts[i].y);
+            ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
+            ctx.strokeStyle = slopeToColor(slope);
+            ctx.stroke();
+        }
+
+        // Pass 3: smooth miter patches at each vertex
+        // Draw short 3-point polylines at each join so the canvas
+        // engine produces a proper miter between the two colors
+        for (let i = 1; i < pts.length - 1; i++) {
+            const slopePrev = pts[i].slope != null ? Math.abs(pts[i].slope) : 0;
+            const slopeNext = pts[i + 1].slope != null ? Math.abs(pts[i + 1].slope) : 0;
+            // Blend color at the join
+            const avgSlope = Math.max(slopePrev, slopeNext);
+
+            ctx.beginPath();
+            ctx.moveTo(pts[i - 1].x, pts[i - 1].y);
+            ctx.lineTo(pts[i].x, pts[i].y);
+            ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
+            ctx.strokeStyle = slopeToColor(avgSlope);
+            ctx.lineWidth = lineWidth - 0.5; // slightly thinner to not cover segment colors
+            ctx.stroke();
+        }
+    },
+});
+
+// ── Slope Grid Overlay ─────────────────────────────────────────────
+// Renders the ground slope grid as a per-pixel canvas overlay with
+// bilinear interpolation of slope values. Works correctly because
+// the colormap transition at 30° is smooth (spread over 28-32°),
+// so interpolated slopes produce smooth color gradients.
+const SlopeGridLayer = L.Layer.extend({
+    initialize(slopeGrid, options) {
+        this._grid = slopeGrid;
+        L.setOptions(this, options);
+    },
+
+    onAdd(map) {
+        this._map = map;
+        this._canvas = L.DomUtil.create("canvas", "slope-grid-canvas");
+        this._canvas.style.position = "absolute";
+        this._canvas.style.pointerEvents = "none";
+        map.getPanes().overlayPane.appendChild(this._canvas);
+        map.on("moveend zoomend resize", this._redraw, this);
+        this._redraw();
+    },
+
+    onRemove(map) {
+        L.DomUtil.remove(this._canvas);
+        map.off("moveend zoomend resize", this._redraw, this);
+    },
+
+    _redraw() {
+        const map = this._map;
+        const g = this._grid;
+        const size = map.getSize();
+        const topLeft = map.containerPointToLayerPoint([0, 0]);
+        L.DomUtil.setPosition(this._canvas, topLeft);
+
+        const dpr = window.devicePixelRatio || 1;
+        const w = size.x, h = size.y;
+        this._canvas.width = w * dpr;
+        this._canvas.height = h * dpr;
+        this._canvas.style.width = w + "px";
+        this._canvas.style.height = h + "px";
+
+        const ctx = this._canvas.getContext("2d");
+        const cw = w * dpr, canvasH = h * dpr;
+        const imgData = ctx.createImageData(cw, canvasH);
+        const pixels = imgData.data;
+
+        // Compute viewport corner lat/lons ONCE instead of per-pixel
+        // projection. At these scales the Mercator-to-linear error is
+        // sub-pixel so simple linear interpolation is fine.
+        const tlLL = map.containerPointToLatLng([0, 0]);
+        const brLL = map.containerPointToLatLng([w, h]);
+        const latTop = tlLL.lat, latBot = brLL.lat;
+        const lonLeft = tlLL.lng, lonRight = brLL.lng;
+
+        const latRange = g.lat_max - g.lat_min;
+        const lonRange = g.lon_max - g.lon_min;
+        const rowScale = (g.rows - 1) / latRange;
+        const colScale = (g.cols - 1) / lonRange;
+
+        for (let py = 0; py < canvasH; py++) {
+            const lat = latTop + (latBot - latTop) * (py / canvasH);
+            if (lat < g.lat_min || lat > g.lat_max) continue;
+
+            const rowF = (lat - g.lat_min) * rowScale;
+            const r0 = rowF | 0;  // fast floor for positive values
+            const r1 = Math.min(r0 + 1, g.rows - 1);
+            if (r0 < 0 || r1 >= g.rows) continue;
+            const fr = rowF - r0;
+            const r0off = r0 * g.cols, r1off = r1 * g.cols;
+
+            for (let px = 0; px < cw; px++) {
+                const lon = lonLeft + (lonRight - lonLeft) * (px / cw);
+                if (lon < g.lon_min || lon > g.lon_max) continue;
+
+                const colF = (lon - g.lon_min) * colScale;
+                const c0 = colF | 0;
+                const c1 = Math.min(c0 + 1, g.cols - 1);
+                if (c0 < 0 || c1 >= g.cols) continue;
+                const fc = colF - c0;
+
+                const s00 = g.data[r0off + c0];
+                const s10 = g.data[r1off + c0];
+                const s01 = g.data[r0off + c1];
+                const s11 = g.data[r1off + c1];
+                if (s00 < 0 || s10 < 0 || s01 < 0 || s11 < 0) continue;
+
+                // Bilinear interpolation in COLOR space: look up each
+                // corner's RGBA from the LUT directly (no array allocation)
+                // then blend. Avoids checkerboard at hard colormap boundaries.
+                const cmap = GROUND_CMAP;
+                const i00 = Math.min(Math.max(Math.round((s00 / 47) * 255), 0), 255) * 4;
+                const i10 = Math.min(Math.max(Math.round((s10 / 47) * 255), 0), 255) * 4;
+                const i01 = Math.min(Math.max(Math.round((s01 / 47) * 255), 0), 255) * 4;
+                const i11 = Math.min(Math.max(Math.round((s11 / 47) * 255), 0), 255) * 4;
+
+                const w00 = (1-fr) * (1-fc), w10 = fr * (1-fc);
+                const w01 = (1-fr) * fc, w11 = fr * fc;
+                const idx = (py * cw + px) * 4;
+                pixels[idx]     = (cmap[i00]*w00 + cmap[i10]*w10 + cmap[i01]*w01 + cmap[i11]*w11 + 0.5) | 0;
+                pixels[idx + 1] = (cmap[i00+1]*w00 + cmap[i10+1]*w10 + cmap[i01+1]*w01 + cmap[i11+1]*w11 + 0.5) | 0;
+                pixels[idx + 2] = (cmap[i00+2]*w00 + cmap[i10+2]*w10 + cmap[i01+2]*w01 + cmap[i11+2]*w11 + 0.5) | 0;
+                pixels[idx + 3] = (cmap[i00+3]*w00 + cmap[i10+3]*w10 + cmap[i01+3]*w01 + cmap[i11+3]*w11 + 0.5) | 0;
+            }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+    },
+});
+
+// ── Map Legends (canvas-drawn for pixel-perfect alignment) ────────
+function renderLegends() {
+    _drawGroundLegend(document.getElementById("ground-legend"));
+    _drawTrackLegend(document.getElementById("track-legend"));
+}
+
+function _drawCanvasLegend(container, opts) {
+    // opts: { title, barWidth, colorFn(fraction)->rgba,
+    //         rightTicks: [{frac, label}], leftTicks: [{frac, label}],
+    //         tickMinor: [{frac}] }
+    const dpr = window.devicePixelRatio || 1;
+    const titleH = 18;
+    container.innerHTML = "";
+
+    const titleDiv = document.createElement("div");
+    titleDiv.className = "legend-title";
+    titleDiv.textContent = opts.title;
+    container.appendChild(titleDiv);
+
+    const canvas = document.createElement("canvas");
+    canvas.style.flex = "1";
+    canvas.style.width = "100%";
+    container.appendChild(canvas);
+
+    // Wait for layout so we know the size
+    requestAnimationFrame(() => {
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        const ctx = canvas.getContext("2d");
+        ctx.scale(dpr, dpr);
+
+        // Bar dimensions
+        const barW = opts.barWidth || 14;
+        const barX = Math.round((w - barW) / 2);
+        const padTop = 6, padBot = 6;
+        const barTop = padTop;
+        const barH = h - padTop - padBot;
+
+        // Draw color bar pixel by pixel (bottom = frac 0, top = frac 1)
+        for (let py = 0; py < barH; py++) {
+            const frac = 1 - py / barH; // top of bar = frac 1
+            const rgba = opts.colorFn(frac);
+            ctx.fillStyle = `rgb(${rgba[0]},${rgba[1]},${rgba[2]})`;
+            ctx.fillRect(barX, barTop + py, barW, 1);
+        }
+
+        // Bar border
+        ctx.strokeStyle = "#999";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(barX + 0.5, barTop + 0.5, barW - 1, barH - 1);
+
+        // Draw ticks and labels
+        ctx.fillStyle = "#333";
+        ctx.textBaseline = "middle";
+        const fontSize = 10;
+        ctx.font = `${fontSize}px -apple-system, sans-serif`;
+
+        function drawTicks(ticks, side) {
+            for (const t of ticks) {
+                const y = Math.round(barTop + barH * (1 - t.frac)) + 0.5;
+                const tickLen = t.label ? 6 : 3;
+                ctx.beginPath();
+                if (side === "right") {
+                    ctx.moveTo(barX + barW, y);
+                    ctx.lineTo(barX + barW + tickLen, y);
+                } else {
+                    ctx.moveTo(barX, y);
+                    ctx.lineTo(barX - tickLen, y);
+                }
+                ctx.strokeStyle = "#333";
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                if (t.label) {
+                    if (side === "right") {
+                        ctx.textAlign = "left";
+                        ctx.fillText(t.label, barX + barW + tickLen + 2, y);
+                    } else {
+                        ctx.textAlign = "right";
+                        ctx.fillText(t.label, barX - tickLen - 2, y);
+                    }
+                }
+            }
+        }
+
+        if (opts.rightTicks) drawTicks(opts.rightTicks, "right");
+        if (opts.leftTicks) drawTicks(opts.leftTicks, "left");
+    });
+}
+
+function _drawGroundLegend(el) {
+    const maxDeg = 47;
+    const ticks = [];
+    for (let d = 0; d <= 45; d += 5) {
+        const frac = d / maxDeg;
+        ticks.push({ frac, label: d + "°" });
+    }
+
+    _drawCanvasLegend(el, {
+        title: "Ground",
+        barWidth: 14,
+        colorFn(frac) {
+            return groundSlopeRGBA(frac * maxDeg);
+        },
+        rightTicks: ticks,
+    });
+}
+
+function _drawTrackLegend(el) {
+    const maxDeg = 20;
+
+    // Degree ticks on right (every 5°)
+    const degTicks = [];
+    for (let d = 0; d <= maxDeg; d += 5) {
+        degTicks.push({ frac: d / maxDeg, label: d + "°" });
+    }
+
+    // Percent grade ticks on left (every 10%)
+    const pctTicks = [];
+    for (let p = 0; p <= 40; p += 10) {
+        const deg = Math.atan(p / 100) * 180 / Math.PI;
+        if (deg > maxDeg) break;
+        pctTicks.push({ frac: deg / maxDeg, label: p + "%" });
+    }
+
+    _drawCanvasLegend(el, {
+        title: "Track",
+        barWidth: 14,
+        colorFn(frac) {
+            // Interpolate TRACK_CMAP_ANCHORS, return [r,g,b,255]
+            const t = Math.min(Math.max(frac, 0), 1);
+            let i = 0;
+            while (i < TRACK_CMAP_ANCHORS.length - 1 && TRACK_CMAP_ANCHORS[i + 1][0] <= t) i++;
+            if (i >= TRACK_CMAP_ANCHORS.length - 1) {
+                const c = TRACK_CMAP_ANCHORS[TRACK_CMAP_ANCHORS.length - 1][1];
+                return [Math.round(c[0]*255), Math.round(c[1]*255), Math.round(c[2]*255), 255];
+            }
+            const [pos0, c0] = TRACK_CMAP_ANCHORS[i];
+            const [pos1, c1] = TRACK_CMAP_ANCHORS[i + 1];
+            const f = (t - pos0) / (pos1 - pos0);
+            return [
+                Math.round((c0[0] + f * (c1[0] - c0[0])) * 255),
+                Math.round((c0[1] + f * (c1[1] - c0[1])) * 255),
+                Math.round((c0[2] + f * (c1[2] - c0[2])) * 255),
+                255
+            ];
+        },
+        rightTicks: degTicks,
+        leftTicks: pctTicks,
+    });
+}
+
+// ── Leaflet Map ────────────────────────────────────────────────────
+function renderMap(track, slopeGrid, contours) {
+    if (map) map.remove();
+
+    const mapEl = document.getElementById("map");
+    // CSS aspect-ratio: 1/1 controls the square shape
+
+    map = L.map("map", { attributionControl: false });
+
+    // Slope angle shading as the base layer (fully opaque)
+    if (slopeGrid) {
+        new SlopeGridLayer(slopeGrid).addTo(map);
+    }
+
+    // Contour lines from our DEM data
+    if (contours) {
+        // Minor contours (thin, gray)
+        for (const coords of contours.minor) {
+            L.polyline(coords, { color: "#444", weight: 0.3, opacity: 0.35, interactive: false }).addTo(map);
+        }
+        // Major contours (bold, dark, with one label per elevation level)
+        const sortedMajor = contours.major
+            .filter(item => item.coords.length >= 5)
+            .sort((a, b) => b.coords.length - a.coords.length);
+
+        // Draw major contours with inline labels (gap + rotated text along the line)
+        const bestPerLevel = {};
+        for (const item of sortedMajor) {
+            if (!bestPerLevel[item.level]) bestPerLevel[item.level] = item;
+        }
+        const labeledLevels = new Set(Object.values(bestPerLevel).map(i => i.level));
+
+        for (const item of contours.major) {
+            const coords = item.coords;
+            const isLabeled = labeledLevels.has(item.level) && bestPerLevel[item.level] === item;
+
+            if (isLabeled && coords.length >= 10) {
+                // Split the line at the midpoint, leaving a gap for the label
+                const midIdx = Math.floor(coords.length / 2);
+                const gapSize = 1; // points to skip for the gap
+                const part1 = coords.slice(0, midIdx - gapSize);
+                const part2 = coords.slice(midIdx + gapSize);
+                if (part1.length >= 2) L.polyline(part1, { color: "#333", weight: 0.8, opacity: 0.5, interactive: false }).addTo(map);
+                if (part2.length >= 2) L.polyline(part2, { color: "#333", weight: 0.8, opacity: 0.5, interactive: false }).addTo(map);
+
+                // Calculate angle from surrounding points
+                const p1 = coords[Math.max(0, midIdx - 2)];
+                const p2 = coords[Math.min(coords.length - 1, midIdx + 2)];
+                const dx = p2[1] - p1[1]; // lon diff
+                const dy = p2[0] - p1[0]; // lat diff
+                let angle = Math.atan2(-dy, dx) * 180 / Math.PI;
+                // Keep text readable (not upside down)
+                if (angle > 90) angle -= 180;
+                if (angle < -90) angle += 180;
+
+                const mid = coords[midIdx];
+                L.marker(mid, {
+                    icon: L.divIcon({
+                        className: "contour-label",
+                        html: `<span style="transform:rotate(${angle.toFixed(1)}deg);display:inline-block">${item.level}</span>`,
+                        iconSize: [40, 14],
+                        iconAnchor: [20, 7],
+                    }),
+                    interactive: false,
+                }).addTo(map);
+            } else {
+                L.polyline(coords, { color: "#333", weight: 0.8, opacity: 0.5, interactive: false }).addTo(map);
+            }
+        }
+    }
+
+    // Draw track with smooth gradient coloring
+    new GradientTrackLayer(track).addTo(map);
+
+    // Start/end markers
+    const last = track[track.length - 1];
+    const startLL = L.latLng(track[0].lat, track[0].lon);
+    const endLL = L.latLng(last.lat, last.lon);
+    const isLoop = startLL.distanceTo(endLL) < 200;
+
+    if (isLoop) {
+        L.circleMarker([track[0].lat, track[0].lon], {
+            radius: 8, fillColor: "white", color: "black",
+            weight: 2, fillOpacity: 1,
+        }).addTo(map).bindTooltip("Start / End");
+    } else {
+        L.circleMarker([track[0].lat, track[0].lon], {
+            radius: 8, fillColor: "#22c55e", color: "black",
+            weight: 2, fillOpacity: 1,
+        }).addTo(map).bindTooltip("Start");
+        L.circleMarker([last.lat, last.lon], {
+            radius: 8, fillColor: "white", color: "black",
+            weight: 2, fillOpacity: 1,
+        }).addTo(map).bindTooltip("End");
+    }
+
+    // Hover marker (hidden until chart hover)
+    hoverMarker = L.circleMarker([track[0].lat, track[0].lon], {
+        radius: 7, fillColor: "#3b82f6", color: "white",
+        weight: 2, fillOpacity: 0, opacity: 0,
+    }).addTo(map);
+
+    // Fit bounds and force size recalc (needed after display:none → block)
+    map.invalidateSize();
+
+    // Fit to slope grid extent and constrain to it
+    const bounds = slopeGrid
+        ? L.latLngBounds([slopeGrid.lat_min, slopeGrid.lon_min], [slopeGrid.lat_max, slopeGrid.lon_max])
+        : L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.05);
+
+    // Square container + square grid bounds = perfect fill, no gray borders
+    map.fitBounds(bounds, { padding: [0, 0] });
+
+    // Don't allow zooming out past the slope grid extent — beyond it
+    // there's no shading data. Allow panning within the grid area.
+    map.setMinZoom(map.getZoom());
+    map.setMaxBounds(bounds.pad(0.3));
+}
+
+// ── Cross-link: chart hover → map marker ───────────────────────────
+function updateHoverMarker(pointIndex) {
+    if (!trackData || !hoverMarker) return;
+    const point = trackData.track[pointIndex];
+    if (!point) return;
+    hoverMarker.setLatLng([point.lat, point.lon]);
+    hoverMarker.setStyle({ opacity: 1, fillOpacity: 0.9 });
+}
+
+function hideHoverMarker() {
+    if (hoverMarker) {
+        hoverMarker.setStyle({ opacity: 0, fillOpacity: 0 });
+    }
+}
+
+// ── Plotly: Elevation Profile ──────────────────────────────────────
+function renderElevationChart(track) {
+    const distances = track.map(p => (p.distance / 1000) * KM_TO_MI);
+    const elevations = track.map(p => p.elevation != null ? p.elevation * M_TO_FT : null);
+    const slopes = track.map(p => p.track_slope != null ? Math.abs(p.track_slope) : 0);
+
+    const plotlyColorscale = TRACK_CMAP_ANCHORS.map(([pos, [r, g, b]]) => [
+        pos,
+        `rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`
+    ]);
+
+    // Background line: continuous light line to fill gaps between
+    // color-bucketed segments at slope transitions.
+    const bgTrace = {
+        x: distances, y: elevations,
+        mode: "lines",
+        line: { color: "#ccc", width: 5 },
+        hoverinfo: "skip",
+        showlegend: false,
+        type: "scatter",
+    };
+
+    // Colored line segments grouped by half-degree slope buckets (~30 traces)
+    const buckets = {};
+    for (let i = 0; i < distances.length - 1; i++) {
+        const s = Math.min(slopes[i + 1], 20);
+        const key = Math.floor(s * 2); // half-degree buckets
+        if (!buckets[key]) buckets[key] = { x: [], y: [] };
+        buckets[key].x.push(distances[i], distances[i + 1], null);
+        buckets[key].y.push(elevations[i], elevations[i + 1], null);
+    }
+
+    // Sort by slope DESCENDING: dark (steep) traces draw first, light (gentle)
+    // traces draw on top. This prevents dark traces from bleeding over adjacent
+    // lighter segments at junction points.
+    const lineTraces = Object.entries(buckets)
+        .sort((a, b) => Number(b[0]) - Number(a[0]))
+        .map(([key, pts]) => ({
+            x: pts.x, y: pts.y,
+            mode: "lines",
+            line: { color: slopeToColor(Number(key) / 2 + 0.25), width: 4 },
+            hoverinfo: "skip",
+            showlegend: false,
+            type: "scatter",
+            connectgaps: false,
+        }));
+
+    // Invisible marker trace for hover interaction — spans entire x range
+    const hoverTrace = {
+        x: distances, y: elevations,
+        mode: "markers",
+        marker: {
+            size: 8, opacity: 0,
+            color: slopes,
+            colorscale: plotlyColorscale,
+            cmin: 0, cmax: 20,
+            showscale: false,
+        },
+        customdata: track.map((_, i) => i),
+        hovertemplate:
+            "Distance: %{x:.2f} mi<br>" +
+            "Elevation: %{y:.0f} ft<br>" +
+            "Slope: %{marker.color:.1f}&deg;<extra></extra>",
+        type: "scatter",
+    };
+
+    const layout = {
+        xaxis: { title: "Distance (mi)", spikemode: "across", spikethickness: 1,
+                 spikecolor: "#3b82f6", spikedash: "solid", spikesnap: "cursor" },
+        yaxis: { title: "Elevation (ft)" },
+        showlegend: false,
+        margin: { t: 10, r: 10, b: 40, l: 45 },
+        hovermode: "x",
+    };
+
+    Plotly.newPlot("elevation-chart", [bgTrace, ...lineTraces, hoverTrace], layout, { responsive: true, displaylogo: false });
+
+    const el = document.getElementById("elevation-chart");
+    el.on("plotly_hover", (e) => {
+        // Find the point from the hover trace (last trace, has customdata)
+        const pt = e.points.find(p => p.customdata !== undefined);
+        if (pt) updateHoverMarker(pt.customdata);
+    });
+    el.on("plotly_unhover", hideHoverMarker);
+}
+
+// ── Plotly: Slopes Profile ─────────────────────────────────────────
+function renderSlopesChart(track) {
+    const distances = track.map(p => (p.distance / 1000) * KM_TO_MI);
+    const trackSlopes = track.map(p => p.track_slope != null ? Math.abs(p.track_slope) : null);
+    const groundSlopes = track.map(p => p.ground_slope);
+
+    const groundTrace = {
+        x: distances, y: groundSlopes,
+        mode: "lines",
+        name: "Ground",
+        line: { color: "#dc2626", width: 2 },
+        opacity: 0.7,
+        hovertemplate: "Ground: %{y:.1f}&deg;<extra></extra>",
+        type: "scatter",
+    };
+
+    const trackTrace = {
+        x: distances, y: trackSlopes,
+        mode: "lines",
+        name: "Track",
+        line: { color: "#2563eb", width: 2.5 },
+        customdata: track.map((_, i) => i),
+        hovertemplate: "Track: %{y:.1f}&deg;<extra></extra>",
+        type: "scatter",
+    };
+
+    // Compute y-axis range in degrees, then build matching percent grade ticks
+    const maxDeg = Math.max(
+        ...trackSlopes.filter(v => v != null),
+        ...groundSlopes.filter(v => v != null),
+        5 // minimum
+    );
+    const yMax = Math.ceil(maxDeg / 5) * 5; // round up to nearest 5°
+    // Percent grade tick values to show on right axis
+    const pctGradeTicks = [];
+    for (let pct = 0; pct <= 200; pct += 5) {
+        const deg = Math.atan(pct / 100) * 180 / Math.PI;
+        if (deg > yMax) break;
+        pctGradeTicks.push({ deg, pct });
+    }
+
+    const layout = {
+        xaxis: { title: "Distance (mi)" },
+        yaxis: { title: "Slope (deg)", rangemode: "tozero", range: [0, yMax] },
+        yaxis2: {
+            title: "Grade (%)",
+            overlaying: "y",
+            side: "right",
+            range: [0, yMax],
+            tickvals: pctGradeTicks.map(t => t.deg),
+            ticktext: pctGradeTicks.map(t => t.pct + "%"),
+            showgrid: false,
+        },
+        showlegend: true,
+        legend: { x: 1.0, y: 1.0, xanchor: "right" },
+        margin: { t: 10, r: 50, b: 40, l: 45 },
+        hovermode: "x unified",
+    };
+
+    Plotly.newPlot("slopes-chart", [groundTrace, trackTrace], layout, { responsive: true, displaylogo: false });
+
+    const el = document.getElementById("slopes-chart");
+    el.on("plotly_hover", (e) => {
+        const pt = e.points.find(p => p.customdata !== undefined);
+        if (pt) updateHoverMarker(pt.customdata);
+    });
+    el.on("plotly_unhover", hideHoverMarker);
+}
+
+// ── Plotly: Violin (Track vs Ground slope distribution) ───────────
+// Single split violin: track on the left side, ground on the right.
+// Colors match the slope profile chart (blue = track, red = ground).
+function renderTrackDistribution(track) {
+    const upSlopes = [];
+    const downSlopes = [];
+    for (const p of track) {
+        if (p.track_slope == null) continue;
+        if (p.track_slope > 0.5) upSlopes.push(p.track_slope);
+        else if (p.track_slope < -0.5) downSlopes.push(-p.track_slope);
+    }
+    if (upSlopes.length === 0 && downSlopes.length === 0) return;
+
+    const binSize = 1;
+    const allSlopes = [...upSlopes, ...downSlopes];
+    const maxSlope = Math.max(...allSlopes);
+    const xMax = Math.ceil(maxSlope) + 1;
+
+    function makeBins(slopes) {
+        const bins = [];
+        for (let edge = 0; edge < xMax; edge += binSize) {
+            bins.push({ mid: edge + binSize / 2, count: 0 });
+        }
+        for (const s of slopes) {
+            const idx = Math.min(Math.floor(s / binSize), bins.length - 1);
+            if (idx >= 0) bins[idx].count++;
+        }
+        // Trim trailing empty bins to fit the actual data
+        while (bins.length > 1 && bins[bins.length - 1].count === 0) bins.pop();
+        return bins;
+    }
+
+    function binLabel(b) {
+        return `${Math.floor(b.mid)}-${Math.ceil(b.mid)}&deg;`;
+    }
+
+    const upBins = makeBins(upSlopes);
+    const downBins = makeBins(downSlopes);
+
+    const upTotal = upSlopes.length || 1;
+    const downTotal = downSlopes.length || 1;
+
+    const traces = [];
+    if (upSlopes.length > 0) {
+        traces.push({
+            x: upBins.map(b => b.mid),
+            y: upBins.map(b => (b.count / upTotal) * 100),
+            type: "bar",
+            name: "Uphill",
+            width: binSize * 0.92,
+            showlegend: false,
+            marker: {
+                color: upBins.map(b => slopeToColor(b.mid)),
+                line: { width: 0.3, color: "rgba(255,255,255,0.5)" },
+            },
+            hovertemplate: upBins.map(b => `${binLabel(b)}: %{y:.1f}%<extra>Uphill</extra>`),
+        });
+    }
+    if (downSlopes.length > 0) {
+        traces.push({
+            x: downBins.map(b => b.mid),
+            y: downBins.map(b => -(b.count / downTotal) * 100),
+            type: "bar",
+            name: "Downhill",
+            width: binSize * 0.92,
+            showlegend: false,
+            marker: {
+                color: downBins.map(b => slopeToColor(b.mid)),
+                line: { width: 0.3, color: "rgba(255,255,255,0.5)" },
+            },
+            customdata: downBins.map(b => ((b.count / downTotal) * 100).toFixed(1)),
+            hovertemplate: downBins.map(b => `${binLabel(b)}: %{customdata}%<extra>Downhill</extra>`),
+        });
+    }
+
+    const visibleMax = Math.max(
+        upBins.length ? upBins[upBins.length - 1].mid + 1 : 5,
+        downBins.length ? downBins[downBins.length - 1].mid + 1 : 5,
+    );
+
+    const layout = {
+        xaxis: {
+            title: "Slope angle (deg)", range: [0, visibleMax], dtick: 5,
+            showgrid: true, gridcolor: "rgba(0,0,0,0.1)", gridwidth: 1,
+        },
+        yaxis: {
+            showticklabels: false, showgrid: false, title: "",
+            zeroline: true, zerolinewidth: 2, zerolinecolor: "#666",
+        },
+        margin: { t: 10, r: 20, b: 40, l: 20 },
+        barmode: "overlay",
+        showlegend: false,
+        annotations: [
+            { x: visibleMax - 1, y: 0.95, xref: "x", yref: "paper", text: "Uphill \u2191",
+              showarrow: false, font: { size: 11, color: "#666" }, xanchor: "right" },
+            { x: visibleMax - 1, y: 0.05, xref: "x", yref: "paper", text: "Downhill \u2193",
+              showarrow: false, font: { size: 11, color: "#666" }, xanchor: "right" },
+        ],
+    };
+
+    Plotly.newPlot("violin-chart", traces, layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage"] });
+}
+
+// ── Plotly: Ground Angle Distribution ─────────────────────────────
+function renderGroundDistribution(track) {
+    const slopes = track.filter(p => p.ground_slope != null).map(p => p.ground_slope);
+    if (slopes.length === 0) return;
+
+    function groundColorStr(deg) {
+        const rgba = groundSlopeRGBA(deg);
+        return `rgb(${rgba[0]},${rgba[1]},${rgba[2]})`;
+    }
+
+    const binSize = 1;
+    const maxSlope = 50;
+    const bins = [];
+    for (let edge = 0; edge < maxSlope; edge += binSize) {
+        bins.push({ mid: edge + binSize / 2, count: 0 });
+    }
+    for (const s of slopes) {
+        const idx = Math.min(Math.floor(s / binSize), bins.length - 1);
+        if (idx >= 0) bins[idx].count++;
+    }
+    // Trim trailing empty bins
+    while (bins.length > 1 && bins[bins.length - 1].count === 0) bins.pop();
+
+    const total = slopes.length;
+    const trace = {
+        x: bins.map(b => b.mid),
+        y: bins.map(b => (b.count / total) * 100),
+        type: "bar",
+        width: binSize * 0.92,
+        marker: {
+            color: bins.map(b => groundColorStr(b.mid)),
+            line: { width: 0.3, color: "rgba(255,255,255,0.5)" },
+        },
+        hovertemplate: "%{x:.0f}&deg;: %{y:.1f}%<extra></extra>",
+    };
+
+    const xEnd = bins[bins.length - 1].mid + 2;
+    const layout = {
+        xaxis: { title: "Ground slope angle (deg)", range: [0, xEnd], dtick: 1,
+                 tickvals: Array.from({length: Math.ceil(xEnd)}, (_, i) => i),
+                 ticktext: Array.from({length: Math.ceil(xEnd)}, (_, i) => i % 5 === 0 ? String(i) : ""),
+                 ticklen: 3,
+        },
+        yaxis: { title: "% of track", rangemode: "tozero" },
+        margin: { t: 10, r: 20, b: 40, l: 55 },
+    };
+
+    Plotly.newPlot("histogram-chart", [trace], layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage"] });
+}
+</script>
+</body>
+</html>

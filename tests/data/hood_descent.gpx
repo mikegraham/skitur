@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="skitur-test">
+  <trk>
+    <name>Hood Descent</name>
+    <trkseg>
+      <trkpt lat="45.3700" lon="-121.6980"/>
+      <trkpt lat="45.3650" lon="-121.7000"/>
+      <trkpt lat="45.3600" lon="-121.7020"/>
+      <trkpt lat="45.3550" lon="-121.7035"/>
+      <trkpt lat="45.3500" lon="-121.7050"/>
+      <trkpt lat="45.3450" lon="-121.7070"/>
+      <trkpt lat="45.3400" lon="-121.7090"/>
+      <trkpt lat="45.3350" lon="-121.7105"/>
+      <trkpt lat="45.3311" lon="-121.7113"/>
+    </trkseg>
+  </trk>
+</gpx>

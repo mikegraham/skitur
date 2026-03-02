@@ -1,0 +1,59 @@
+[project]
+name = "skitur"
+version = "0.1.0"
+description = "Analyze cross-country ski touring routes"
+requires-python = ">=3.10"
+dependencies = [
+    "flask",
+    "gpxpy",
+    "matplotlib",
+    "numpy",
+    "seamless-3dep",
+    "srtm.py",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "ruff", "mypy"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--cov=skitur",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-fail-under=70",
+]
+
+[tool.coverage.run]
+source = ["skitur"]
+branch = true
+omit = ["skitur/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "skitur.plot"
+disable_error_code = ["arg-type"]
