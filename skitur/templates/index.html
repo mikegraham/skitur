@@ -363,12 +363,25 @@ const GradientTrackLayer = L.Layer.extend({
         this._canvas.style.pointerEvents = "none";
         map.getPanes().overlayPane.appendChild(this._canvas);
         map.on("moveend zoomend resize", this._redraw, this);
+        // Re-render on browser zoom (Ctrl+/-) which changes DPR
+        this._dprQuery = window.matchMedia(
+            `(resolution: ${window.devicePixelRatio}dppx)`);
+        this._onDprChange = () => {
+            this._dprQuery = window.matchMedia(
+                `(resolution: ${window.devicePixelRatio}dppx)`);
+            this._dprQuery.addEventListener("change", this._onDprChange, { once: true });
+            this._redraw();
+        };
+        this._dprQuery.addEventListener("change", this._onDprChange, { once: true });
         this._redraw();
     },
 
     onRemove(map) {
         L.DomUtil.remove(this._canvas);
         map.off("moveend zoomend resize", this._redraw, this);
+        if (this._dprQuery) {
+            this._dprQuery.removeEventListener("change", this._onDprChange);
+        }
     },
 
     _redraw() {
@@ -467,12 +480,27 @@ const SlopeGridLayer = L.Layer.extend({
         this._canvas.style.pointerEvents = "none";
         map.getPanes().overlayPane.appendChild(this._canvas);
         map.on("moveend zoomend resize", this._scheduleRedraw, this);
+        // Browser zoom (Ctrl+/-) changes devicePixelRatio without firing
+        // Leaflet events. Detect DPR changes and redraw.
+        this._dprQuery = window.matchMedia(
+            `(resolution: ${window.devicePixelRatio}dppx)`);
+        this._onDprChange = () => {
+            // Re-create the media query for the new DPR
+            this._dprQuery = window.matchMedia(
+                `(resolution: ${window.devicePixelRatio}dppx)`);
+            this._dprQuery.addEventListener("change", this._onDprChange, { once: true });
+            this._scheduleRedraw();
+        };
+        this._dprQuery.addEventListener("change", this._onDprChange, { once: true });
         this._scheduleRedraw();
     },
 
     onRemove(map) {
         L.DomUtil.remove(this._canvas);
         map.off("moveend zoomend resize", this._scheduleRedraw, this);
+        if (this._dprQuery) {
+            this._dprQuery.removeEventListener("change", this._onDprChange);
+        }
         if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
     },
 
