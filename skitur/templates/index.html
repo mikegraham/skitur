@@ -763,7 +763,7 @@ function renderMap(track, slopeGrid, contours) {
     const mapEl = document.getElementById("map");
     // CSS aspect-ratio: 1/1 controls the square shape
 
-    map = L.map("map", { attributionControl: false });
+    map = L.map("map", { attributionControl: false, zoomSnap: 0 });
 
     // Slope angle shading as the base layer (fully opaque)
     if (slopeGrid) {
@@ -861,18 +861,20 @@ function renderMap(track, slopeGrid, contours) {
     // Fit bounds and force size recalc (needed after display:none → block)
     map.invalidateSize();
 
-    // Fit to slope grid extent and constrain to it
-    const bounds = slopeGrid
+    // Grid bounds = shading extent (2.5x track). Track bounds + buffer = default view.
+    const gridBounds = slopeGrid
         ? L.latLngBounds([slopeGrid.lat_min, slopeGrid.lon_min], [slopeGrid.lat_max, slopeGrid.lon_max])
-        : L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.05);
+        : L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.5);
 
-    // Square container + square grid bounds = perfect fill, no gray borders
-    map.fitBounds(bounds, { padding: [0, 0] });
+    // MinZoom: the zoom where grid fills the map (can't zoom out past shading)
+    map.fitBounds(gridBounds, { padding: [0, 0] });
+    const gridZoom = map.getZoom();
+    map.setMinZoom(gridZoom);
+    map.setMaxBounds(gridBounds.pad(0.1));
 
-    // Don't allow zooming out past the slope grid extent — beyond it
-    // there's no shading data. Allow panning within the grid area.
-    map.setMinZoom(map.getZoom());
-    map.setMaxBounds(bounds.pad(0.3));
+    // Default view: track barely fits with minimal buffer
+    const trackBounds = L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.075);
+    map.fitBounds(trackBounds, { padding: [0, 0], animate: false });
 }
 
 // ── Cross-link: chart hover → map marker ───────────────────────────

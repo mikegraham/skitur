@@ -185,7 +185,10 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, "TourScor
     lon_scale = math.cos(math.radians(mid_lat))
     lat_span = max(pt_lats) - min(pt_lats)
     lon_span_scaled = (max(pt_lons) - min(pt_lons)) * lon_scale
-    side = max(lat_span, lon_span_scaled) * 1.15
+    # Make grid ~2.5x the track extent so shading extends well beyond
+    # the default view. This lets users zoom out ~1 level and still
+    # see shading everywhere.
+    side = max(lat_span, lon_span_scaled) * 2.5
     half_lat = side / 2
     half_lon = (side / lon_scale) / 2
     grid_bounds = (mid_lat - half_lat, mid_lat + half_lat,
