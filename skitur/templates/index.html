@@ -993,7 +993,7 @@ function renderSlopesChart(track) {
         name: "Ground",
         line: { color: "#dc2626", width: 2 },
         opacity: 0.7,
-        hovertemplate: "Ground: %{y:.1f}&deg;<extra></extra>",
+        hoverinfo: "skip",
         type: "scatter",
     };
 
@@ -1002,8 +1002,21 @@ function renderSlopesChart(track) {
         mode: "lines",
         name: "Track",
         line: { color: "#2563eb", width: 2.5 },
-        customdata: track.map((_, i) => i),
-        hovertemplate: "Track: %{y:.1f}&deg;<extra></extra>",
+        hoverinfo: "skip",
+        type: "scatter",
+    };
+
+    // Invisible hover trace — combines both slopes in one tooltip
+    const hoverTrace = {
+        x: distances, y: trackSlopes,
+        mode: "markers",
+        marker: { size: 8, opacity: 0 },
+        customdata: track.map((p, i) => [i, p.ground_slope]),
+        hovertemplate:
+            "Distance: %{x:.2f} mi<br>" +
+            "Track: %{y:.1f}&deg;<br>" +
+            "Ground: %{customdata[1]:.1f}&deg;<extra></extra>",
+        showlegend: false,
         type: "scatter",
     };
 
@@ -1023,7 +1036,9 @@ function renderSlopesChart(track) {
     }
 
     const layout = {
-        xaxis: { title: "Distance (mi)" },
+        xaxis: { title: "Distance (mi)", showspikelines: true, spikemode: "across",
+                 spikethickness: 1, spikecolor: "#3b82f6", spikedash: "solid",
+                 spikesnap: "cursor" },
         yaxis: { title: "Slope (deg)", rangemode: "tozero", range: [0, yMax] },
         yaxis2: {
             title: "Grade (%)",
@@ -1037,15 +1052,15 @@ function renderSlopesChart(track) {
         showlegend: true,
         legend: { x: 1.0, y: 1.0, xanchor: "right" },
         margin: { t: 10, r: 45, b: 35, l: 40 },
-        hovermode: "x unified",
+        hovermode: "closest",
     };
 
-    Plotly.newPlot("slopes-chart", [groundTrace, trackTrace], layout, { responsive: true, displaylogo: false });
+    Plotly.newPlot("slopes-chart", [groundTrace, trackTrace, hoverTrace], layout, { responsive: true, displaylogo: false });
 
     const el = document.getElementById("slopes-chart");
     el.on("plotly_hover", (e) => {
         const pt = e.points.find(p => p.customdata !== undefined);
-        if (pt) updateHoverMarker(pt.customdata);
+        if (pt) updateHoverMarker(pt.customdata[0]);
     });
     el.on("plotly_unhover", hideHoverMarker);
 }
