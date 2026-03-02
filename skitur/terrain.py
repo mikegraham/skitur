@@ -1,39 +1,31 @@
-"""Terrain data access using USGS 3DEP (US) and SRTM (global).
+"""Terrain data access using USGS 3DEP (US) and Copernicus GLO-30 (global).
 
 3DEP provides 10m resolution for US locations.
-SRTM provides 30m resolution globally as fallback.
+Copernicus GLO-30 provides 30m resolution globally.
+Both accessed via dem-stitcher.
 """
 
+import logging
 import math
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import srtm
 
 from skitur.geo import METERS_PER_DEG_LAT
 
-# Lazy-load seamless_3dep to avoid slow import at startup
-_s3dep = None
-
-
-def _get_s3dep():
-    global _s3dep
-    if _s3dep is None:
-        import seamless_3dep
-        _s3dep = seamless_3dep
-    return _s3dep
-
+logger = logging.getLogger(__name__)
 
 # EPSG:4326 = WGS84 geographic coordinate system (lat/lon)
 CRS_WGS84 = 4326
 
 # Cell size for slope calculations (meters)
-CELL_SIZE_3DEP = 10.0  # 3DEP provides 10m resolution in US
-CELL_SIZE_SRTM = 30.0  # SRTM provides 30m resolution globally
+CELL_SIZE_3DEP = 10.0   # 3DEP provides 10m resolution in US
+CELL_SIZE_GLO30 = 30.0   # Copernicus GLO-30 provides 30m resolution globally
 
-_srtm_data = srtm.get_data()
+# Persistent tile cache for dem-stitcher (it has no built-in cache)
+_TILE_CACHE_DIR = Path.home() / ".cache" / "skitur" / "dem"
 
 
 def _is_us_coverage(lat: float, lon: float) -> bool:
@@ -130,12 +122,29 @@ _dem_cache: DEMCache | None = None
 _dem_lock = threading.Lock()
 
 
+def _coords_from_profile(
+    profile: dict, data: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Extract lon/lat coordinate arrays from a rasterio Affine profile.
+
+    dem-stitcher returns (data, profile) where profile contains an Affine
+    transform. This converts it to the x_coords/y_coords arrays that
+    DEMCache expects (pixel centers).
+    """
+    transform = profile["transform"]
+    rows, cols = data.shape[-2], data.shape[-1]
+    # Pixel centers: transform maps (col, row) -> (x, y)
+    x_coords = transform.c + (np.arange(cols) + 0.5) * transform.a
+    y_coords = transform.f + (np.arange(rows) + 0.5) * transform.e
+    return x_coords, y_coords
+
+
 def load_dem_for_bounds(
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, padding: float = 0.01
 ) -> DEMCache:
     """Load DEM for a bounding box, caching for repeated queries.
 
-    Downloads 3DEP data for US locations, uses SRTM for elsewhere.
+    Downloads 3DEP data for US locations, Copernicus GLO-30 for elsewhere.
     Skips the download if the in-memory cache already covers the requested bounds.
     Thread-safe: lock protects the cache check-and-update.
     """
@@ -152,53 +161,54 @@ def load_dem_for_bounds(
         if _dem_cache is not None and _dem_cache.covers(lat_min, lat_max, lon_min, lon_max):
             return _dem_cache
 
+        from dem_stitcher import stitch_dem
+
         center_lat = (lat_min + lat_max) / 2
         center_lon = (lon_min + lon_max) / 2
         is_us = _is_us_coverage(center_lat, center_lon)
 
-        if is_us:
-            bbox = (lon_min, lat_min, lon_max, lat_max)
-            s3dep = _get_s3dep()
-            cache_dir = Path.home() / ".cache" / "skitur" / "3dep"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            tiff_files = s3dep.get_dem(bbox, cache_dir, res=10)
-            dem = s3dep.tiffs_to_da(tiff_files, bbox, crs=CRS_WGS84)
+        dem_name = "3dep" if is_us else "glo_30"
+        cell_size = CELL_SIZE_3DEP if is_us else CELL_SIZE_GLO30
+        res = 1 / 3600 if not is_us else 1 / 3600 / 3
 
-            # Extract numpy arrays for fast access
-            x_coords = dem.x.values
-            y_coords = dem.y.values
-            data = dem.values
+        _TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-            # Ensure coords are sorted ascending (required for searchsorted)
-            if x_coords[0] > x_coords[-1]:
-                x_coords = x_coords[::-1]
-                data = data[:, ::-1]
-            if y_coords[0] > y_coords[-1]:
-                y_coords = y_coords[::-1]
-                data = data[::-1, :]
+        # Expand bounds by one pixel so that pixel-center coordinates
+        # (from _coords_from_profile) fully cover the requested extent.
+        # Without this, the outermost pixel centers fall half a pixel
+        # inside the tile edge, causing covers() to fail on repeat calls.
+        fetch_bounds = [lon_min - res, lat_min - res,
+                        lon_max + res, lat_max + res]
 
-            cell_size = CELL_SIZE_3DEP
-        else:
-            # Build an SRTM grid cache so we get bilinear interpolation
-            # instead of nearest-neighbor point queries (avoids moire).
-            # SRTM is ~30m (1 arc-second ≈ 0.000278°)
-            srtm_step = 1 / 3600  # 1 arc-second
-            x_coords = np.arange(lon_min, lon_max + srtm_step, srtm_step)
-            y_coords = np.arange(lat_min, lat_max + srtm_step, srtm_step)
-            data = np.full((len(y_coords), len(x_coords)), np.nan)
-            for yi, lat in enumerate(y_coords):
-                for xi, lon in enumerate(x_coords):
-                    e = _srtm_data.get_elevation(float(lat), float(lon))
-                    if e is not None:
-                        data[yi, xi] = float(e)
-            cell_size = CELL_SIZE_SRTM
+        logger.info("Fetching DEM (%s) for bounds [%.4f, %.4f, %.4f, %.4f]",
+                     dem_name, *fetch_bounds)
 
-        # Ensure float dtype. The source is typically float32 from 3DEP
-        # or float64 from our SRTM fill loop. Either works fine for
-        # scipy.map_coordinates; the key is not to call .astype() on
-        # every lookup (that copies the entire array each time).
+        data, profile = stitch_dem(
+            bounds=fetch_bounds,
+            dem_name=dem_name,
+            dst_ellipsoidal_height=False,  # orthometric heights
+            dst_area_or_point="Point",
+            dst_resolution=res,
+        )
+
+        # Squeeze band dimension if present (stitch_dem returns 3D: [1, rows, cols])
+        if data.ndim == 3:
+            data = data[0]
+
+        x_coords, y_coords = _coords_from_profile(profile, data)
+
+        # Ensure coords are sorted ascending (required for searchsorted)
+        if len(x_coords) > 1 and x_coords[0] > x_coords[-1]:
+            x_coords = x_coords[::-1]
+            data = data[:, ::-1]
+        if len(y_coords) > 1 and y_coords[0] > y_coords[-1]:
+            y_coords = y_coords[::-1]
+            data = data[::-1, :]
+
+        # Ensure float dtype for scipy.map_coordinates
         if not np.issubdtype(data.dtype, np.floating):
             data = data.astype(np.float32)
+
         _dem_cache = DEMCache(
             x_coords=x_coords,
             y_coords=y_coords,
@@ -213,19 +223,14 @@ def get_elevation(lat: float, lon: float) -> float | None:
     """Return elevation in meters at (lat, lon), or None if no data."""
     if _dem_cache is not None and len(_dem_cache.x_coords) > 0:
         return _dem_cache.get_elevation(lat, lon)
-    return _srtm_data.get_elevation(lat, lon)
+    raise RuntimeError("DEM not loaded — call load_dem_for_bounds() first")
 
 
 def get_elevations(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
     """Return elevations for arrays of (lat, lon). NaN where no data."""
     if _dem_cache is not None and len(_dem_cache.x_coords) > 0:
         return _dem_cache.get_elevations(lats, lons)
-    result = np.full(len(lats), np.nan)
-    for i in range(len(lats)):
-        e = _srtm_data.get_elevation(float(lats[i]), float(lons[i]))
-        if e is not None:
-            result[i] = e
-    return result
+    raise RuntimeError("DEM not loaded — call load_dem_for_bounds() first")
 
 
 def get_elevation_grid(
@@ -234,19 +239,7 @@ def get_elevation_grid(
     """Get elevation grid for a region. Returns (lon_mesh, lat_mesh, elev_grid_meters)."""
     if _dem_cache is not None and len(_dem_cache.x_coords) > 0:
         return _dem_cache.get_elevation_grid(lat_min, lat_max, lon_min, lon_max, resolution)
-
-    # Fallback to point-by-point SRTM queries (no cache available)
-    lons = np.linspace(lon_min, lon_max, resolution)
-    lats = np.linspace(lat_min, lat_max, resolution)
-    lon_mesh, lat_mesh = np.meshgrid(lons, lats)
-
-    elev_grid = np.zeros_like(lat_mesh)
-    for i in range(resolution):
-        for j in range(resolution):
-            e = _srtm_data.get_elevation(lat_mesh[i, j], lon_mesh[i, j])
-            elev_grid[i, j] = e if e is not None else np.nan
-
-    return lon_mesh, lat_mesh, elev_grid
+    raise RuntimeError("DEM not loaded — call load_dem_for_bounds() first")
 
 
 def get_ground_slope(lat: float, lon: float, cell_size_m: float | None = None) -> float | None:
@@ -259,7 +252,7 @@ def get_ground_slope(lat: float, lon: float, cell_size_m: float | None = None) -
         if _dem_cache is not None:
             cell_size_m = _dem_cache.cell_size
         else:
-            cell_size_m = CELL_SIZE_3DEP if _is_us_coverage(lat, lon) else CELL_SIZE_SRTM
+            cell_size_m = CELL_SIZE_3DEP if _is_us_coverage(lat, lon) else CELL_SIZE_GLO30
 
     # Convert cell size to degrees
     dlat = cell_size_m / METERS_PER_DEG_LAT

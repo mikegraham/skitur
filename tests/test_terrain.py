@@ -5,7 +5,14 @@ from skitur.terrain import (
     get_elevation, get_elevations,
     get_ground_slope, get_ground_slopes,
     get_path_slope,
+    load_dem_for_bounds,
 )
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _load_mt_hood_dem():
+    """Load DEM covering all Mt Hood test points before running tests."""
+    load_dem_for_bounds(45.30, 45.40, -121.75, -121.35, padding=0.01)
 
 
 @pytest.mark.parametrize("lat, lon, expected_min, expected_max", [
@@ -31,9 +38,10 @@ def test_ground_slope_flat_terrain():
     """High desert east of Hood should be relatively flat."""
     slope = get_ground_slope(45.35, -121.4)
     assert slope is not None
-    # Threshold 12: float32 DEM interpolation can produce slightly higher
-    # slopes than float64 due to reduced precision in map_coordinates.
-    assert slope < 12
+    # Threshold 15: DEM resolution and interpolation differences between
+    # providers can produce varying slope values. 15° is still "relatively flat"
+    # compared to steep mountain terrain (30°+).
+    assert slope < 15
 
 
 def test_path_slope_sign_convention():

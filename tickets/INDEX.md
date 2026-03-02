@@ -14,11 +14,12 @@
 - [015](015-code-duplication-refactor.md) Refactor shared code between matplotlib and web versions
 - [016](016-brainstorm-plots.md) Brainstorm and add useful plots
 - [041](FIXED/041-remove-distribution-legend.md) ~~Remove Uphill/Downhill Legend~~ FIXED
+- [053](053-concurrent-analysis.md) Improve analysis latency via concurrency
 
 ## P2 - Nice to Have
 - [020](020-chart-horizontal-space.md) Elevation/slope profile horizontal space efficiency
-- [021](021-colormap-tick-alignment.md) Colormap ticks not touching bar, not aligned top/bottom
-- [022](022-ground-legend-title.md) Ground colormap label/title positioning
+- [021](FIXED/021-colormap-tick-alignment.md) ~~Colormap ticks not touching bar, not aligned top/bottom~~ FIXED
+- [022](FIXED/022-ground-legend-title.md) ~~Ground colormap label/title positioning~~ FIXED
 - [023](FIXED/023-points-label.md) ~~"Points" -> "GPS points" in stats~~ FIXED
 - [024](024-map-view-toggle.md) Add slope angle / topo+features toggle above map
 - [025](FIXED/025-fine-print-credits.md) ~~Fine print section with credits, explanations, caveats~~ FIXED
@@ -27,19 +28,24 @@
 - [028](028-security-audit.md) Security audit
 - [029](029-launchability-audit.md) Launchability audit
 - [030](030-launch-plan.md) Launch plan / deployment / browser-side JS?
-- [031](031-static-page-cli.md) Static page generation as proper CLI entrypoint
+- [031](FIXED/031-static-page-cli.md) ~~Static page generation as proper CLI entrypoint~~ FIXED
 - [032](032-minimize-non-ascii.md) Minimize non-ASCII characters in source
 - [033](033-track-segment-coloring.md) How does track segment coloring work? Should it gradient?
 - [034](034-named-features.md) Named features (peaks, lakes, rivers, trails, roads)
 - [036](FIXED/036-regen-debug-script.md) ~~Make regen_debug.sh script~~ FIXED
 - [037](037-topo-line-labeling.md) Topo line labeling improvements
 - [048](048-rate-limiting.md) Rate limiting on analysis endpoint
-- [049](049-aspect-rose.md) Aspect rose — polar heatmap of ground slope by compass direction
+- [050](050-unit-toggle.md) Allow choice of mi/ft or km/m units
+- [052](052-dem-data-sources.md) Improve DEM data sources (Copernicus, European LiDAR, etc.)
+- [049](FIXED/049-aspect-rose.md) ~~Aspect rose — polar heatmap of ground slope by compass direction~~ FIXED
 - [038](FIXED/038-visual-testing.md) ~~Set up visual testing / screenshots~~ FIXED
 - [039](FIXED/039-avy-time-stats.md) ~~Add time-under-avy-slopes to stats~~ FIXED
 - [040](FIXED/040-skinnier-layout.md) ~~Make the whole data column skinnier~~ FIXED
 - [044](FIXED/044-track-dist-hover-percent.md) ~~Track Distribution Hover Text and Y-axis Improvements~~ FIXED
 - [047](FIXED/047-elevation-profile-thinner.md) ~~Make elevation profile a little thinner~~ FIXED
+
+## P4 - Backlog
+- [051](051-topo-line-density.md) Investigate topo line density for flat maps
 
 ## P3 - Low Priority
 - [042](FIXED/042-delete-avy-lines-ground-dist.md) ~~Delete Vertical Avy Lines~~ FIXED

@@ -10,8 +10,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "orjson",
-    "seamless-3dep",
-    "srtm.py",
+    "dem-stitcher",
 ]
 
 [project.optional-dependencies]

@@ -44,10 +44,10 @@
         .stats-table td { padding: 4px 0; font-size: 0.95em; }
         .stats-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 
-        #map-row { display: flex; gap: 8px; margin-bottom: 16px; align-items: stretch; }
+        #map-row { display: flex; gap: 4px; margin-bottom: 16px; align-items: stretch; }
         #map { flex: 1; aspect-ratio: 1 / 1; border-radius: 8px;
                box-shadow: 0 1px 4px rgba(0,0,0,0.1); background: #e8e8e8; }
-        #ground-legend, #track-legend { width: 80px; font-size: 10px; padding: 4px 0; display: flex; flex-direction: column; }
+        #ground-legend, #track-legend { width: 70px; font-size: 10px; padding: 4px 0; display: flex; flex-direction: column; }
         .legend-title { font-size: 11px; font-weight: bold; text-align: center; margin-bottom: 4px; }
 
         #charts-row { display: flex; gap: 16px; margin-bottom: 16px; }
@@ -60,8 +60,11 @@
         #violin-chart, #histogram-chart, #aspect-rose-chart, #aspect-dist-chart { min-height: 220px; background: white; border-radius: 8px;
                            padding: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
 
-        .contour-label { background: none; border: none; }
-        .contour-label span { font-size: 9px; color: #333; padding: 0; }
+        .contour-label { background: none; border: none; text-align: center; }
+        .contour-label span {
+            font-size: 9px; color: #333; padding: 0; white-space: nowrap;
+            text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+        }
 
         /* ── Responsive: single column on narrow screens ─────────── */
         @media (max-width: 700px) {
@@ -78,7 +81,8 @@
 
         /* Mid-width: skinnier legend bars so map gets more room */
         @media (max-width: 900px) and (min-width: 701px) {
-            #ground-legend, #track-legend { width: 50px; font-size: 9px; }
+            #map-row { gap: 2px; }
+            #ground-legend, #track-legend { width: 40px; font-size: 9px; }
         }
     </style>
 </head>
@@ -157,9 +161,8 @@
             <div>
                 Elevation data from
                 <a href="https://www.usgs.gov/3d-elevation-program" target="_blank" rel="noopener" style="color: #aaa;">USGS 3DEP</a> (US)
-                and <a href="https://www.earthdata.nasa.gov/sensors/srtm" target="_blank" rel="noopener" style="color: #aaa;">NASA SRTM</a> (global)
-                via <a href="https://seamless-3dep.readthedocs.io/" target="_blank" rel="noopener" style="color: #aaa;">seamless-3dep</a>
-                and <a href="https://github.com/tkrajina/srtm.py" target="_blank" rel="noopener" style="color: #aaa;">srtm.py</a>.
+                and <a href="https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model" target="_blank" rel="noopener" style="color: #aaa;">Copernicus GLO-30</a> (global)
+                via <a href="https://github.com/ACCESS-Cloud-Based-InSAR/dem-stitcher" target="_blank" rel="noopener" style="color: #aaa;">dem-stitcher</a>.
             </div>
         </div>
     </div>
@@ -199,9 +202,8 @@ function slopeToColor(slopeDeg) {
     return `rgb(${r},${g},${b})`;
 }
 
-// Ground slope colormap — hard transitions at 30° and 45°.
-//   0-25   : milky/faint teal -> green -> yellow (safe terrain, very desaturated)
-//   25-30  : faint/muted orange warning zone     (approaching danger, still muted)
+// Ground slope colormap — hard transitions at 30° and 45° only.
+//   0-30   : milky/faint teal -> green -> yellow (safe terrain, desaturated)
 //   30-45  : bold orange -> red -> dark red      (avalanche-prone, HIGH saturation)
 //   45+    : gray                                (rock/ice, too steep for snow)
 // Precompute a 256-entry lookup table: slope 0-47 deg -> [r,g,b,a] bytes
@@ -210,46 +212,48 @@ const GROUND_CMAP = (function() {
     for (let i = 0; i < 256; i++) {
         const slope = (i / 255) * 47; // 0-47 degrees
         let r, g, b;
-        if (slope < 25) {
-            // Milky/faint teal -> green -> yellow (very desaturated, pastel)
-            const t = slope / 25;
-            if (t < 0.5) {
-                // faint teal to faint green
-                const s = t / 0.5;
-                r = 0.70 + 0.05 * s;
-                g = 0.78 + 0.07 * s;
-                b = 0.72 - 0.12 * s;
+        if (slope < 30) {
+            // Contour-plot style: gradient in low range, plateau near 30°
+            // Cool teal -> sage -> tan (gradient) then FLAT tan plateau 20-30°
+            if (slope < 10) {
+                // 0-10°: cool gray-teal to sage green
+                const s = slope / 10;
+                r = 0.72 + 0.06 * s;
+                g = 0.78 + 0.02 * s;
+                b = 0.74 - 0.16 * s;
+            } else if (slope < 20) {
+                // 10-20°: sage green to warm tan
+                const s = (slope - 10) / 10;
+                r = 0.78 + 0.06 * s;
+                g = 0.80 - 0.06 * s;
+                b = 0.58 - 0.12 * s;
             } else {
-                // faint green to faint yellow
-                const s = (t - 0.5) / 0.5;
-                r = 0.75 + 0.10 * s;
-                g = 0.85 + 0.02 * s;
-                b = 0.60 - 0.22 * s;
+                // 20-30°: FLAT warm tan plateau (barely changes)
+                const s = (slope - 20) / 10;
+                r = 0.84 + 0.01 * s;
+                g = 0.74 + 0.01 * s;
+                b = 0.46 + 0.02 * s;
             }
-        } else if (slope < 30) {
-            // Muted orange warning zone (25-30 deg)
-            const t = (slope - 25) / 5;
-            r = 0.85 + 0.03 * t;
-            g = 0.72 - 0.12 * t;
-            b = 0.38 - 0.05 * t;
         } else if (slope < 45) {
-            // HARD transition at 30 — bold orange -> red -> dark red
-            const t = (slope - 30) / 15;
-            if (t < 0.3) {
-                const s = t / 0.3;
-                r = 0.90 - 0.02 * s;
-                g = 0.25 - 0.05 * s;
-                b = 0.08 + 0.02 * s;
-            } else if (t < 0.65) {
-                const s = (t - 0.3) / 0.35;
-                r = 0.88 - 0.10 * s;
-                g = 0.20 - 0.05 * s;
-                b = 0.10 - 0.02 * s;
+            // 30+: FLAT vivid orange plateau near 30°, then gradient to dark red
+            if (slope < 36) {
+                // 30-36°: solid vivid orange (barely changes)
+                const s = (slope - 30) / 6;
+                r = 0.95;
+                g = 0.55 - 0.05 * s;
+                b = 0.05;
+            } else if (slope < 40) {
+                // 36-40°: orange to red
+                const s = (slope - 36) / 4;
+                r = 0.95 - 0.10 * s;
+                g = 0.50 - 0.25 * s;
+                b = 0.05;
             } else {
-                const s = (t - 0.65) / 0.35;
-                r = 0.78 - 0.23 * s;
-                g = 0.15 - 0.05 * s;
-                b = 0.08 - 0.02 * s;
+                // 40-45°: red to dark red
+                const s = (slope - 40) / 5;
+                r = 0.85 - 0.30 * s;
+                g = 0.25 - 0.15 * s;
+                b = 0.05 + 0.01 * s;
             }
         } else {
             // HARD transition at 45 — gray
@@ -658,9 +662,9 @@ function _drawCanvasLegend(container, opts) {
 function _drawGroundLegend(el) {
     const maxDeg = 47;
     const ticks = [];
-    for (let d = 0; d <= 45; d += 5) {
+    for (let d = 0; d <= 45; d += 1) {
         const frac = d / maxDeg;
-        ticks.push({ frac, label: d + "°" });
+        ticks.push({ frac, label: d % 5 === 0 ? d + "\u00b0" : null });
     }
 
     _drawCanvasLegend(el, {
@@ -676,18 +680,18 @@ function _drawGroundLegend(el) {
 function _drawTrackLegend(el) {
     const maxDeg = 20;
 
-    // Degree ticks on right (every 5°)
+    // Degree ticks on right (every 1°, labeled every 5°)
     const degTicks = [];
-    for (let d = 0; d <= maxDeg; d += 5) {
-        degTicks.push({ frac: d / maxDeg, label: d + "°" });
+    for (let d = 0; d <= maxDeg; d += 1) {
+        degTicks.push({ frac: d / maxDeg, label: d % 5 === 0 ? d + "\u00b0" : null });
     }
 
-    // Percent grade ticks on left (every 10%)
+    // Percent grade ticks on left (every 1%, labeled every 10%)
     const pctTicks = [];
-    for (let p = 0; p <= 40; p += 10) {
+    for (let p = 0; p <= 40; p += 1) {
         const deg = Math.atan(p / 100) * 180 / Math.PI;
         if (deg > maxDeg) break;
-        pctTicks.push({ frac: deg / maxDeg, label: p + "%" });
+        pctTicks.push({ frac: deg / maxDeg, label: p % 10 === 0 ? p + "%" : null });
     }
 
     _drawCanvasLegend(el, {
@@ -735,64 +739,117 @@ function renderMap(track, slopeGrid, contours) {
             [slopeGrid.lat_min, slopeGrid.lon_min],
             [slopeGrid.lat_max, slopeGrid.lon_max],
         ];
-        L.imageOverlay(slopeDataUrl, slopeBounds).addTo(map);
+        const slopeOverlay = L.imageOverlay(slopeDataUrl, slopeBounds).addTo(map);
+        // Nearest-neighbor scaling: preserves hard color boundaries at 30°/45°
+        // instead of bilinear-interpolated blur.  Use the load event because
+        // getElement() returns null before the image is in the DOM.
+        slopeOverlay.on("load", function() {
+            this.getElement().style.imageRendering = "pixelated";
+        });
     }
 
     // Contour lines from our DEM data
+    let _placeContourLabels = null;
+    let _contourLabelLayer = null;
     if (contours) {
         // Minor contours (thin, gray)
         for (const coords of contours.minor) {
             L.polyline(coords, { color: "#444", weight: 0.3, opacity: 0.35, interactive: false }).addTo(map);
         }
-        // Major contours (bold, dark, with one label per elevation level)
-        const sortedMajor = contours.major
-            .filter(item => item.coords.length >= 5)
-            .sort((a, b) => b.coords.length - a.coords.length);
 
-        // Draw major contours with inline labels (gap + rotated text along the line)
-        const bestPerLevel = {};
-        for (const item of sortedMajor) {
-            if (!bestPerLevel[item.level]) bestPerLevel[item.level] = item;
-        }
-        const labeledLevels = new Set(Object.values(bestPerLevel).map(i => i.level));
+        // Major contours: draw polylines + place halo labels along them.
+        // Labels are recalculated on every zoom change so rotation angles
+        // stay aligned with the line direction at the current projection.
+        const LABEL_SPACING_PX = 400;
+        const MIN_LINE_PX = 120;
+        const MAX_CURVATURE_DEG = 30;
+        const MIN_LABEL_DIST_PX = 80;
 
         for (const item of contours.major) {
-            const coords = item.coords;
-            const isLabeled = labeledLevels.has(item.level) && bestPerLevel[item.level] === item;
+            L.polyline(item.coords, { color: "#333", weight: 0.8, opacity: 0.5, interactive: false }).addTo(map);
+        }
 
-            if (isLabeled && coords.length >= 10) {
-                // Split the line at the midpoint, leaving a gap for the label
-                const midIdx = Math.floor(coords.length / 2);
-                const gapSize = 1; // points to skip for the gap
-                const part1 = coords.slice(0, midIdx - gapSize);
-                const part2 = coords.slice(midIdx + gapSize);
-                if (part1.length >= 2) L.polyline(part1, { color: "#333", weight: 0.8, opacity: 0.5, interactive: false }).addTo(map);
-                if (part2.length >= 2) L.polyline(part2, { color: "#333", weight: 0.8, opacity: 0.5, interactive: false }).addTo(map);
+        _contourLabelLayer = L.layerGroup().addTo(map);
 
-                // Calculate angle from surrounding points
-                const p1 = coords[Math.max(0, midIdx - 2)];
-                const p2 = coords[Math.min(coords.length - 1, midIdx + 2)];
-                const dx = p2[1] - p1[1]; // lon diff
-                const dy = p2[0] - p1[0]; // lat diff
-                let angle = Math.atan2(-dy, dx) * 180 / Math.PI;
-                // Keep text readable (not upside down)
+        // Sort once — longest lines get label priority (processed first
+        // for collision checks).
+        const sortedMajor = contours.major.slice()
+            .sort((a, b) => b.coords.length - a.coords.length);
+
+        function placeLabelsAlongLine(coords, level, placedLabels) {
+            // Convert to screen pixels for distance/angle calculations
+            const pts = coords.map(c => map.latLngToContainerPoint(c));
+
+            let totalLen = 0;
+            for (let i = 1; i < pts.length; i++) {
+                totalLen += pts[i].distanceTo(pts[i - 1]);
+            }
+            if (totalLen < MIN_LINE_PX) return;
+
+            let accum = 0;
+            const firstOffset = Math.min(LABEL_SPACING_PX * 0.5, totalLen * 0.3);
+            let nextLabelAt = firstOffset;
+
+            for (let i = 1; i < pts.length; i++) {
+                accum += pts[i].distanceTo(pts[i - 1]);
+                if (accum < nextLabelAt) continue;
+
+                // Curvature check: skip high-curvature regions
+                const lb = Math.max(0, i - 3);
+                const la = Math.min(pts.length - 1, i + 3);
+                if (la - lb < 2) { nextLabelAt += 50; continue; }
+                const aBefore = Math.atan2(
+                    pts[Math.min(lb + 1, pts.length - 1)].y - pts[lb].y,
+                    pts[Math.min(lb + 1, pts.length - 1)].x - pts[lb].x);
+                const aAfter = Math.atan2(
+                    pts[la].y - pts[Math.max(la - 1, 0)].y,
+                    pts[la].x - pts[Math.max(la - 1, 0)].x);
+                let curv = ((aAfter - aBefore) * 180 / Math.PI) % 360;
+                if (curv > 180) curv -= 360;
+                if (curv < -180) curv += 360;
+                if (Math.abs(curv) > MAX_CURVATURE_DEG) { nextLabelAt = accum + 50; continue; }
+
+                // Collision check
+                const px = pts[i].x, py = pts[i].y;
+                let tooClose = false;
+                for (const lbl of placedLabels) {
+                    const dx = lbl.x - px, dy = lbl.y - py;
+                    if (dx * dx + dy * dy < MIN_LABEL_DIST_PX * MIN_LABEL_DIST_PX) { tooClose = true; break; }
+                }
+                if (tooClose) { nextLabelAt = accum + 50; continue; }
+
+                // Tangent angle from a small screen-space neighborhood
+                const tP1 = pts[Math.max(0, i - 2)];
+                const tP2 = pts[Math.min(pts.length - 1, i + 2)];
+                let angle = Math.atan2(tP2.y - tP1.y, tP2.x - tP1.x) * 180 / Math.PI;
                 if (angle > 90) angle -= 180;
                 if (angle < -90) angle += 180;
 
-                const mid = coords[midIdx];
-                L.marker(mid, {
+                // Place label at the original contour coordinate (exact,
+                // no containerPoint → latLng round-trip).
+                L.marker(coords[i], {
                     icon: L.divIcon({
                         className: "contour-label",
-                        html: `<span style="transform:rotate(${angle.toFixed(1)}deg);display:inline-block">${item.level}</span>`,
+                        html: `<span style="transform:rotate(${angle.toFixed(1)}deg);display:inline-block">${level}</span>`,
                         iconSize: [40, 14],
                         iconAnchor: [20, 7],
                     }),
                     interactive: false,
-                }).addTo(map);
-            } else {
-                L.polyline(coords, { color: "#333", weight: 0.8, opacity: 0.5, interactive: false }).addTo(map);
+                }).addTo(_contourLabelLayer);
+
+                placedLabels.push({ x: px, y: py });
+                nextLabelAt = accum + LABEL_SPACING_PX;
             }
         }
+
+        _placeContourLabels = function() {
+            _contourLabelLayer.clearLayers();
+            const placedLabels = [];
+            for (const item of sortedMajor) {
+                if (item.coords.length < 5) continue;
+                placeLabelsAlongLine(item.coords, item.level, placedLabels);
+            }
+        };
     }
 
     // Draw track with smooth gradient coloring
@@ -846,6 +903,13 @@ function renderMap(track, slopeGrid, contours) {
     // freely zoom and pan to the track.
     const trackBounds = L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.075);
     map.fitBounds(trackBounds, { padding: [0, 0], animate: false });
+
+    // Place contour labels now that the map has a center/zoom.
+    // Recalculate on every zoom so rotation angles track the lines.
+    if (_placeContourLabels) {
+        _placeContourLabels();
+        map.on("zoomend", _placeContourLabels);
+    }
 
     // ── Viewport constraint: keep edges within shaded grid ──────────
     // maxBounds constrains the viewport edges during drag and inertia.
@@ -984,14 +1048,15 @@ function renderElevationChart(track) {
     };
 
     const layout = {
-        xaxis: { title: "Distance (mi)", showspikelines: true, spikemode: "across",
+        xaxis: { showspikelines: true, spikemode: "across",
                  spikethickness: 1, spikecolor: "#3b82f6", spikedash: "solid",
-                 spikesnap: "cursor" },
-        yaxis: { title: "Elevation (ft)", autorange: false,
+                 spikesnap: "cursor", ticksuffix: " mi" },
+        yaxis: { autorange: false,
                  range: [Math.min(...elevations.filter(e => e != null)),
-                         Math.max(...elevations.filter(e => e != null))] },
+                         Math.max(...elevations.filter(e => e != null))],
+                 ticksuffix: " ft" },
         showlegend: false,
-        margin: { t: 10, r: 5, b: 35, l: 40 },
+        margin: { t: 10, r: 5, b: 20, l: 50 },
         hovermode: "x",
     };
 
@@ -1054,19 +1119,18 @@ function renderSlopesChart(track) {
     const yMax = Math.ceil(maxDeg / 5) * 5; // round up to nearest 5°
     // Percent grade tick values to show on right axis
     const pctGradeTicks = [];
-    for (let pct = 0; pct <= 200; pct += 5) {
+    for (let pct = 0; pct <= 200; pct += 10) {
         const deg = Math.atan(pct / 100) * 180 / Math.PI;
         if (deg > yMax) break;
         pctGradeTicks.push({ deg, pct });
     }
 
     const layout = {
-        xaxis: { title: "Distance (mi)", showspikelines: true, spikemode: "across",
+        xaxis: { showspikelines: true, spikemode: "across",
                  spikethickness: 1, spikecolor: "#3b82f6", spikedash: "solid",
-                 spikesnap: "cursor" },
-        yaxis: { title: "Slope (deg)", rangemode: "tozero", range: [0, yMax] },
+                 spikesnap: "cursor", ticksuffix: " mi" },
+        yaxis: { rangemode: "tozero", range: [0, yMax], ticksuffix: "\u00b0" },
         yaxis2: {
-            title: "Grade (%)",
             overlaying: "y",
             side: "right",
             range: [0, yMax],
@@ -1076,11 +1140,22 @@ function renderSlopesChart(track) {
         },
         showlegend: true,
         legend: { x: 1.0, y: 1.0, xanchor: "right" },
-        margin: { t: 10, r: 45, b: 35, l: 40 },
+        margin: { t: 10, r: 50, b: 20, l: 35 },
         hovermode: "x",
     };
 
-    Plotly.newPlot("slopes-chart", [groundTrace, trackTrace, hoverTrace], layout, { responsive: true, displaylogo: false });
+    // Invisible trace to anchor yaxis2 (Plotly requires a trace to render an axis)
+    const pctAxisAnchor = {
+        x: [distances[0]], y: [0],
+        yaxis: "y2",
+        mode: "markers",
+        marker: { size: 0, opacity: 0 },
+        showlegend: false,
+        hoverinfo: "skip",
+        type: "scatter",
+    };
+
+    Plotly.newPlot("slopes-chart", [groundTrace, trackTrace, hoverTrace, pctAxisAnchor], layout, { responsive: true, displaylogo: false });
 
     const el = document.getElementById("slopes-chart");
     el.on("plotly_hover", (e) => {
