@@ -637,13 +637,17 @@ function _drawCanvasLegend(container, opts) {
         const barTop = padTop;
         const barH = h - padTop - padBot;
 
-        // Draw color bar pixel by pixel (bottom = frac 0, top = frac 1)
-        for (let py = 0; py < barH; py++) {
-            const frac = 1 - py / barH; // top of bar = frac 1
+        // Draw color bar as a canvas linear gradient (no sub-pixel gaps)
+        const grad = ctx.createLinearGradient(barX, barTop, barX, barTop + barH);
+        const nStops = 128;
+        for (let i = 0; i <= nStops; i++) {
+            const frac = i / nStops;
             const rgba = opts.colorFn(frac);
-            ctx.fillStyle = `rgb(${rgba[0]},${rgba[1]},${rgba[2]})`;
-            ctx.fillRect(barX, barTop + py, barW, 1);
+            // frac 1 = top of bar (stop 0), frac 0 = bottom (stop 1)
+            grad.addColorStop(1 - frac, `rgb(${rgba[0]},${rgba[1]},${rgba[2]})`);
         }
+        ctx.fillStyle = grad;
+        ctx.fillRect(barX, barTop, barW, barH);
 
         // Bar border
         ctx.strokeStyle = "#999";
