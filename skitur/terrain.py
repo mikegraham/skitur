@@ -5,6 +5,7 @@ SRTM provides 30m resolution globally as fallback.
 """
 
 import math
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -126,6 +127,7 @@ class DEMCache:
 
 # Module-level cache for the current region
 _dem_cache: DEMCache | None = None
+_dem_lock = threading.Lock()
 
 
 def load_dem_for_bounds(
@@ -135,6 +137,7 @@ def load_dem_for_bounds(
 
     Downloads 3DEP data for US locations, uses SRTM for elsewhere.
     Skips the download if the in-memory cache already covers the requested bounds.
+    Thread-safe: lock protects the cache check-and-update.
     """
     global _dem_cache
 
@@ -144,59 +147,60 @@ def load_dem_for_bounds(
     lon_min -= padding
     lon_max += padding
 
-    # Skip download if cache already covers this region
-    if _dem_cache is not None and _dem_cache.covers(lat_min, lat_max, lon_min, lon_max):
+    with _dem_lock:
+        # Skip download if cache already covers this region
+        if _dem_cache is not None and _dem_cache.covers(lat_min, lat_max, lon_min, lon_max):
+            return _dem_cache
+
+        center_lat = (lat_min + lat_max) / 2
+        center_lon = (lon_min + lon_max) / 2
+        is_us = _is_us_coverage(center_lat, center_lon)
+
+        if is_us:
+            bbox = (lon_min, lat_min, lon_max, lat_max)
+            s3dep = _get_s3dep()
+            cache_dir = Path.home() / ".cache" / "skitur" / "3dep"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            tiff_files = s3dep.get_dem(bbox, cache_dir, res=10)
+            dem = s3dep.tiffs_to_da(tiff_files, bbox, crs=CRS_WGS84)
+
+            # Extract numpy arrays for fast access
+            x_coords = dem.x.values
+            y_coords = dem.y.values
+            data = dem.values
+
+            # Ensure coords are sorted ascending (required for searchsorted)
+            if x_coords[0] > x_coords[-1]:
+                x_coords = x_coords[::-1]
+                data = data[:, ::-1]
+            if y_coords[0] > y_coords[-1]:
+                y_coords = y_coords[::-1]
+                data = data[::-1, :]
+
+            cell_size = CELL_SIZE_3DEP
+        else:
+            # Build an SRTM grid cache so we get bilinear interpolation
+            # instead of nearest-neighbor point queries (avoids moire).
+            # SRTM is ~30m (1 arc-second ≈ 0.000278°)
+            srtm_step = 1 / 3600  # 1 arc-second
+            x_coords = np.arange(lon_min, lon_max + srtm_step, srtm_step)
+            y_coords = np.arange(lat_min, lat_max + srtm_step, srtm_step)
+            data = np.full((len(y_coords), len(x_coords)), np.nan)
+            for yi, lat in enumerate(y_coords):
+                for xi, lon in enumerate(x_coords):
+                    e = _srtm_data.get_elevation(float(lat), float(lon))
+                    if e is not None:
+                        data[yi, xi] = float(e)
+            cell_size = CELL_SIZE_SRTM
+
+        _dem_cache = DEMCache(
+            x_coords=x_coords,
+            y_coords=y_coords,
+            data=data,
+            cell_size=cell_size,
+            is_us=is_us,
+        )
         return _dem_cache
-
-    center_lat = (lat_min + lat_max) / 2
-    center_lon = (lon_min + lon_max) / 2
-    is_us = _is_us_coverage(center_lat, center_lon)
-
-    if is_us:
-        bbox = (lon_min, lat_min, lon_max, lat_max)
-        s3dep = _get_s3dep()
-        cache_dir = Path.home() / ".cache" / "skitur" / "3dep"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        tiff_files = s3dep.get_dem(bbox, cache_dir, res=10)
-        dem = s3dep.tiffs_to_da(tiff_files, bbox, crs=CRS_WGS84)
-
-        # Extract numpy arrays for fast access
-        x_coords = dem.x.values
-        y_coords = dem.y.values
-        data = dem.values
-
-        # Ensure coords are sorted ascending (required for searchsorted)
-        if x_coords[0] > x_coords[-1]:
-            x_coords = x_coords[::-1]
-            data = data[:, ::-1]
-        if y_coords[0] > y_coords[-1]:
-            y_coords = y_coords[::-1]
-            data = data[::-1, :]
-
-        cell_size = CELL_SIZE_3DEP
-    else:
-        # Build an SRTM grid cache so we get bilinear interpolation
-        # instead of nearest-neighbor point queries (avoids moire).
-        # SRTM is ~30m (1 arc-second ≈ 0.000278°)
-        srtm_step = 1 / 3600  # 1 arc-second
-        x_coords = np.arange(lon_min, lon_max + srtm_step, srtm_step)
-        y_coords = np.arange(lat_min, lat_max + srtm_step, srtm_step)
-        data = np.full((len(y_coords), len(x_coords)), np.nan)
-        for yi, lat in enumerate(y_coords):
-            for xi, lon in enumerate(x_coords):
-                e = _srtm_data.get_elevation(float(lat), float(lon))
-                if e is not None:
-                    data[yi, xi] = float(e)
-        cell_size = CELL_SIZE_SRTM
-
-    _dem_cache = DEMCache(
-        x_coords=x_coords,
-        y_coords=y_coords,
-        data=data,
-        cell_size=cell_size,
-        is_us=is_us,
-    )
-    return _dem_cache
 
 
 def get_elevation(lat: float, lon: float) -> float | None:

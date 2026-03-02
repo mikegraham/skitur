@@ -24,6 +24,7 @@ from skitur.plot import compute_map_grids, M_TO_FT, CONTOUR_MINOR, CONTOUR_MAJOR
 from skitur.cli import compute_stats
 
 app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload limit
 
 
 @app.route("/")
@@ -44,12 +45,18 @@ def analyze():
         gpx_file.save(tmp)
         tmp_path = Path(tmp.name)
 
+    # Reject XML bombs: valid GPX files never contain DOCTYPE or ENTITY declarations.
+    raw = tmp_path.read_text(errors="replace")
+    if "<!DOCTYPE" in raw or "<!ENTITY" in raw:
+        tmp_path.unlink(missing_ok=True)
+        return jsonify({"error": "Invalid GPX file"}), 400
+
     try:
         points, stats, score, grids = _compute_analysis(tmp_path)
         return jsonify(_build_response(points, stats, score, grids))
     except Exception as e:
         logger.exception("Analysis failed")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Analysis failed. Please check your GPX file."}), 500
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -268,4 +275,6 @@ if __name__ == "__main__":
         out = generate_report(args.report, args.output)
         print(f"Generated {out} ({out.stat().st_size:,} bytes)")
     else:
-        app.run(debug=True, port=args.port)
+        import os
+        app.run(debug=os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true"),
+                port=args.port)
