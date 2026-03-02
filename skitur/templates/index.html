@@ -113,6 +113,29 @@
                 <div id="histogram-chart"></div>
             </div>
         </div>
+
+        <div id="acknowledgements" style="margin-top: 24px; padding: 16px 0 8px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 0.75em; color: #999; line-height: 1.8;">
+            <div style="margin-bottom: 4px;">
+                <span style="color: #888;">Python:</span>
+                <a href="https://flask.palletsprojects.com/" target="_blank" rel="noopener" style="color: #aaa;">Flask</a> &middot;
+                <a href="https://github.com/tkrajina/gpxpy" target="_blank" rel="noopener" style="color: #aaa;">gpxpy</a> &middot;
+                <a href="https://numpy.org/" target="_blank" rel="noopener" style="color: #aaa;">NumPy</a> &middot;
+                <a href="https://scipy.org/" target="_blank" rel="noopener" style="color: #aaa;">SciPy</a> &middot;
+                <a href="https://matplotlib.org/" target="_blank" rel="noopener" style="color: #aaa;">Matplotlib</a>
+            </div>
+            <div style="margin-bottom: 4px;">
+                <span style="color: #888;">Frontend:</span>
+                <a href="https://leafletjs.com/" target="_blank" rel="noopener" style="color: #aaa;">Leaflet</a> &middot;
+                <a href="https://plotly.com/javascript/" target="_blank" rel="noopener" style="color: #aaa;">Plotly.js</a>
+            </div>
+            <div>
+                <span style="color: #888;">Elevation data:</span>
+                <a href="https://www.usgs.gov/3d-elevation-program" target="_blank" rel="noopener" style="color: #aaa;">USGS 3DEP</a> (US, 10m) &middot;
+                <a href="https://www.earthdata.nasa.gov/sensors/srtm" target="_blank" rel="noopener" style="color: #aaa;">NASA SRTM</a> (global, 30m)
+                via <a href="https://seamless-3dep.readthedocs.io/" target="_blank" rel="noopener" style="color: #aaa;">seamless-3dep</a>
+                &amp; <a href="https://github.com/tkrajina/srtm.py" target="_blank" rel="noopener" style="color: #aaa;">srtm.py</a>
+            </div>
+        </div>
     </div>
 
 <script>
@@ -866,16 +889,35 @@ function renderMap(track, slopeGrid, contours) {
         ? L.latLngBounds([slopeGrid.lat_min, slopeGrid.lon_min], [slopeGrid.lat_max, slopeGrid.lon_max])
         : L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.5);
 
-    // MinZoom: the zoom where grid fills the map (can't zoom out past shading)
-    map.fitBounds(gridBounds, { padding: [0, 0] });
+    // MinZoom: the zoom where grid fills the map (can't zoom out past shading).
+    // Use padding: [1,1] so the grid slightly more than fills the viewport,
+    // preventing sub-pixel gray slivers at the edges.
+    map.fitBounds(gridBounds, { padding: [1, 1] });
     const gridZoom = map.getZoom();
     map.setMinZoom(gridZoom);
 
-    // Constrain viewport so edges never leave the grid (not just center).
-    // Leaflet's maxBounds only constrains the center, so we clamp the
-    // center inward by half the viewport extent on each moveend.
-    // Guard against re-entrant panTo → moveend cycles by keeping the
-    // flag set until the stack unwinds.
+    // Default view: track barely fits with minimal buffer.
+    // Must set this BEFORE enabling bounds constraint so fitBounds can
+    // freely zoom and pan to the track.
+    const trackBounds = L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.075);
+    map.fitBounds(trackBounds, { padding: [0, 0], animate: false });
+
+    // ── Viewport constraint: keep edges within shaded grid ──────────
+    // maxBounds constrains the viewport edges during drag and inertia.
+    // Temporarily cleared during zoom so Leaflet can freely zoom out
+    // to minZoom (maxBounds blocks zoom levels where the viewport
+    // would exceed the bounds, even if minZoom explicitly allows it).
+    map.setMaxBounds(gridBounds);
+    map.on("zoomstart", function() {
+        map.setMaxBounds(null);
+    });
+    map.on("zoomend", function() {
+        map.setMaxBounds(gridBounds);
+    });
+
+    // Safety-net clamp on moveend: ensures viewport stays within grid
+    // after zoom or programmatic moves. When viewport >= grid (at
+    // minZoom), centers on grid instead of skipping.
     let _clamping = false;
     function clampToGrid() {
         if (_clamping) return;
@@ -891,22 +933,27 @@ function renderMap(track, slopeGrid, contours) {
             const maxLat = gridBounds.getNorth() - vLatSpan / 2;
             const minLng = gridBounds.getWest() + vLngSpan / 2;
             const maxLng = gridBounds.getEast() - vLngSpan / 2;
-            if (minLat < maxLat) lat = Math.max(minLat, Math.min(maxLat, lat));
-            if (minLng < maxLng) lng = Math.max(minLng, Math.min(maxLng, lng));
+            if (minLat >= maxLat) {
+                // Viewport fills or exceeds grid — center on grid
+                lat = (gridBounds.getSouth() + gridBounds.getNorth()) / 2;
+            } else {
+                lat = Math.max(minLat, Math.min(maxLat, lat));
+            }
+            if (minLng >= maxLng) {
+                lng = (gridBounds.getWest() + gridBounds.getEast()) / 2;
+            } else {
+                lng = Math.max(minLng, Math.min(maxLng, lng));
+            }
             if (lat !== center.lat || lng !== center.lng) {
                 map.panTo([lat, lng], { animate: false });
             }
         } finally {
             // Defer clearing the flag so synchronous re-entrant moveend
             // events from panTo are still blocked.
-            setTimeout(() => { _clamping = false; }, 0);
+            setTimeout(function() { _clamping = false; }, 0);
         }
     }
     map.on("moveend", clampToGrid);
-
-    // Default view: track barely fits with minimal buffer
-    const trackBounds = L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.075);
-    map.fitBounds(trackBounds, { padding: [0, 0], animate: false });
 }
 
 // ── Cross-link: chart hover → map marker ───────────────────────────
