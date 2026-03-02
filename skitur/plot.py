@@ -555,8 +555,7 @@ def compute_map_grids(
     )
 
     return {
-        'lon_mesh': lon_mesh, 'lat_mesh': lat_mesh,
-        'elev_grid_ft': contour_elev_grid_ft, 'slope_grid': slope_grid,
+        'lon_mesh': lon_mesh, 'lat_mesh': lat_mesh, 'slope_grid': slope_grid,
         'contour_lon_mesh': contour_lon_mesh, 'contour_lat_mesh': contour_lat_mesh,
         'contour_elev_grid_ft': contour_elev_grid_ft,
         'lat_min': lat_min, 'lat_max': lat_max,
@@ -577,20 +576,20 @@ def plot_topo_map(
 
     lat_min, lat_max = grids['lat_min'], grids['lat_max']
     lon_min, lon_max = grids['lon_min'], grids['lon_max']
-    contour_lon_mesh = grids.get('contour_lon_mesh', grids['lon_mesh'])
-    contour_lat_mesh = grids.get('contour_lat_mesh', grids['lat_mesh'])
-    elev_grid_ft = grids.get('contour_elev_grid_ft', grids['elev_grid_ft'])
+    elev = grids['contour_elev_grid_ft']
+    elev_lon = grids['contour_lon_mesh']
+    elev_lat = grids['contour_lat_mesh']
 
     fig, ax = plt.subplots(figsize=(12, 9))
 
     # Continuous elevation fill (custom colormap, no blue)
-    valid = elev_grid_ft[~np.isnan(elev_grid_ft)]
+    valid = elev[~np.isnan(elev)]
     elev_norm = mcolors.Normalize(vmin=valid.min(), vmax=valid.max())
     elev_cmap = _make_elevation_cmap()
-    cf = ax.pcolormesh(contour_lon_mesh, contour_lat_mesh, elev_grid_ft, cmap=elev_cmap, norm=elev_norm)
+    cf = ax.pcolormesh(elev_lon, elev_lat, elev, cmap=elev_cmap, norm=elev_norm)
 
     # Topo contours
-    _draw_topo_contours(ax, contour_lon_mesh, contour_lat_mesh, elev_grid_ft)
+    _draw_topo_contours(ax, elev_lon, elev_lat, elev)
 
     # Track
     sm, max_slope = _draw_track_colored_by_slope(ax, points)
@@ -630,9 +629,9 @@ def plot_slope_map(
     lon_mesh = grids['lon_mesh']
     lat_mesh = grids['lat_mesh']
     slope_grid = grids['slope_grid']
-    contour_lon_mesh = grids.get('contour_lon_mesh', lon_mesh)
-    contour_lat_mesh = grids.get('contour_lat_mesh', lat_mesh)
-    elev_grid_ft = grids.get('contour_elev_grid_ft', grids['elev_grid_ft'])
+    elev = grids['contour_elev_grid_ft']
+    elev_lon = grids['contour_lon_mesh']
+    elev_lat = grids['contour_lat_mesh']
 
     fig, ax = plt.subplots(figsize=(12, 9))
 
@@ -641,7 +640,7 @@ def plot_slope_map(
     cf = ax.pcolormesh(lon_mesh, lat_mesh, slope_grid, cmap=ground_cmap, norm=ground_norm)
 
     # Topo contours
-    _draw_topo_contours(ax, contour_lon_mesh, contour_lat_mesh, elev_grid_ft)
+    _draw_topo_contours(ax, elev_lon, elev_lat, elev)
 
     # Track
     sm, max_slope = _draw_track_colored_by_slope(ax, points)

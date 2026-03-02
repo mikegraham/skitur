@@ -67,9 +67,9 @@ def _compute_contours(grids: dict) -> dict:
     Returns dict with 'minor' and 'major' lists of polylines.
     Each polyline is a list of [lat, lon] pairs.
     """
-    elev_grid_ft = grids.get("contour_elev_grid_ft", grids["elev_grid_ft"])
-    lat_mesh = grids.get("contour_lat_mesh", grids["lat_mesh"])
-    lon_mesh = grids.get("contour_lon_mesh", grids["lon_mesh"])
+    elev_grid_ft = grids["contour_elev_grid_ft"]
+    lat_mesh = grids["contour_lat_mesh"]
+    lon_mesh = grids["contour_lon_mesh"]
 
     valid = elev_grid_ft[~np.isnan(elev_grid_ft)]
     if len(valid) == 0:
