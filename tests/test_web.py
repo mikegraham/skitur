@@ -321,7 +321,7 @@ def test_template_has_required_js_functions(client):
                "renderTrackDistribution", "renderGroundDistribution",
                "renderScore", "renderStats", "renderLegends",
                "slopeToColor", "groundSlopeRGBA", "GradientTrackLayer",
-               "SlopeGridLayer", "updateHoverMarker"):
+               "renderSlopeImage", "updateHoverMarker"):
         assert fn in html, f"Missing JS function: {fn}"
 
 
@@ -531,9 +531,12 @@ def test_map_renders(rendered_page):
     box = map_el.bounding_box()
     assert box["width"] > 100
     assert box["height"] > 100
-    # Map should have canvas children (slope grid + track)
+    # Map should have slope image overlay + track canvas
     canvases = page.query_selector_all("#map canvas")
-    assert len(canvases) >= 2, f"Expected >=2 canvas layers, got {len(canvases)}"
+    assert len(canvases) >= 1, f"Expected >=1 canvas layer (track), got {len(canvases)}"
+    imgs = page.query_selector_all("#map img")
+    has_slope = any(page.evaluate("(el) => el.src.startsWith('data:image/png')", el) for el in imgs)
+    assert has_slope, "No slope grid image overlay found in the map"
 
 
 def test_charts_render(rendered_page):

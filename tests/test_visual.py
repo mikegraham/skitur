@@ -105,33 +105,24 @@ def test_upload_section_hidden(rendered_page):
     assert display == "none", f"Upload section display is '{display}', expected 'none'"
 
 
-def test_map_canvas_has_pixels(rendered_page):
-    """The map canvas should have non-zero pixels in its center (slope grid rendering)."""
+def test_map_has_slope_overlay(rendered_page):
+    """The map should have a slope grid image overlay and a track canvas."""
     page = rendered_page
-    canvases = page.query_selector_all("#map canvas")
-    assert len(canvases) > 0, "No canvas elements found in the map"
 
-    # Check that at least one canvas has non-zero pixel data at its center
-    has_pixels = page.evaluate("""() => {
-        const canvases = document.querySelectorAll('#map canvas');
-        for (const canvas of canvases) {
-            const ctx = canvas.getContext('2d');
-            if (!ctx) continue;
-            const cx = Math.floor(canvas.width / 2);
-            const cy = Math.floor(canvas.height / 2);
-            // Sample a 10x10 region around center
-            const imgData = ctx.getImageData(cx - 5, cy - 5, 10, 10);
-            const pixels = imgData.data;
-            for (let i = 0; i < pixels.length; i += 4) {
-                // Check if any pixel has non-zero RGB (alpha can be 0 for transparent)
-                if (pixels[i] > 0 || pixels[i+1] > 0 || pixels[i+2] > 0) {
-                    return true;
-                }
-            }
+    # Slope grid is now an <img> via L.imageOverlay (not a canvas)
+    has_slope_img = page.evaluate("""() => {
+        const imgs = document.querySelectorAll('#map img');
+        for (const img of imgs) {
+            // imageOverlay uses a data:image/png URL
+            if (img.src && img.src.startsWith('data:image/png')) return true;
         }
         return false;
     }""")
-    assert has_pixels, "No non-zero pixels found in center of any map canvas"
+    assert has_slope_img, "No slope grid image overlay found in the map"
+
+    # Track is still drawn on a canvas
+    canvases = page.query_selector_all("#map canvas")
+    assert len(canvases) > 0, "No canvas elements found in the map (track layer)"
 
 
 def test_chart_containers_have_children(rendered_page):
@@ -180,91 +171,46 @@ def test_full_page_screenshot(rendered_page):
     assert screenshot_path.stat().st_size > 0, "Screenshot file is empty"
 
 
-def test_slope_canvas_fills_after_dpr_change(rendered_page):
-    """Regression: slope shading must fully cover the map after a DPR change.
+def test_slope_overlay_survives_viewport_resize(rendered_page):
+    """Regression: slope shading must remain visible after viewport resize.
 
-    When the browser zoom changes (Ctrl+/-), devicePixelRatio changes and the
-    canvas layers must re-render at the correct resolution. A previous bug
-    caused the slope grid to render as horizontal stripes ("thin lines")
-    because the canvas backing store dimensions didn't match the viewport
-    after a DPR change.
+    When the browser zoom changes (Ctrl+/-), the viewport resizes.
+    A previous bug caused the slope grid canvas to render as horizontal
+    stripes ("thin lines"). The fix was to switch from a per-frame canvas
+    to a static L.imageOverlay, which the browser scales natively.
     """
     page = rendered_page
 
-    # Verify canvas is fully filled at baseline
-    baseline_fill = page.evaluate("""() => {
-        const canvas = document.querySelector('.slope-grid-canvas');
-        if (!canvas) return { error: 'no canvas' };
-        const ctx = canvas.getContext('2d');
-        const w = canvas.width, h = canvas.height;
-        let filled = 0, total = 0;
-        for (let y = 0; y < h; y += 10) {
-            for (let x = 0; x < w; x += 10) {
-                const p = ctx.getImageData(x, y, 1, 1).data;
-                total++;
-                if (p[3] > 0) filled++;
+    # Verify slope image overlay is present at baseline
+    baseline = page.evaluate("""() => {
+        const imgs = document.querySelectorAll('#map img');
+        for (const img of imgs) {
+            if (img.src && img.src.startsWith('data:image/png')) {
+                const rect = img.getBoundingClientRect();
+                return { found: true, width: rect.width, height: rect.height };
             }
         }
-        return { filled, total, pct: (filled / total * 100) };
+        return { found: false };
     }""")
-    assert baseline_fill["pct"] > 95, (
-        f"Baseline fill rate too low: {baseline_fill['pct']:.1f}%"
-    )
+    assert baseline["found"], "Slope grid image overlay not found at baseline"
+    assert baseline["width"] > 100, f"Slope overlay too narrow: {baseline['width']}px"
 
-    # Simulate DPR change (as browser zoom would)
-    page.evaluate("""() => {
-        Object.defineProperty(window, 'devicePixelRatio', {
-            get: () => 1.5,
-            configurable: true,
-        });
-    }""")
-
-    # Resize viewport to simulate CSS pixel shrinkage from zoom
+    # Resize viewport (simulates browser zoom CSS pixel shrinkage)
     page.set_viewport_size({"width": 800, "height": 600})
-
-    # Wait for DPR polling (200ms) + rAF + render time
     time.sleep(1)
 
-    # Verify canvas is still fully filled after DPR change
-    after_fill = page.evaluate("""() => {
-        const canvas = document.querySelector('.slope-grid-canvas');
-        if (!canvas) return { error: 'no canvas' };
-        const ctx = canvas.getContext('2d');
-        const w = canvas.width, h = canvas.height;
-        let filled = 0, total = 0;
-        for (let y = 0; y < h; y += 10) {
-            for (let x = 0; x < w; x += 10) {
-                const p = ctx.getImageData(x, y, 1, 1).data;
-                total++;
-                if (p[3] > 0) filled++;
+    # Verify slope image overlay is still visible after resize
+    after = page.evaluate("""() => {
+        const imgs = document.querySelectorAll('#map img');
+        for (const img of imgs) {
+            if (img.src && img.src.startsWith('data:image/png')) {
+                const rect = img.getBoundingClientRect();
+                return { found: true, width: rect.width, height: rect.height };
             }
         }
-        return { filled, total, pct: (filled / total * 100), w, h };
+        return { found: false };
     }""")
-    assert after_fill["pct"] > 95, (
-        f"After DPR change, fill rate dropped to {after_fill['pct']:.1f}% "
-        f"(canvas {after_fill['w']}x{after_fill['h']}). "
-        f"Expected >95% — slope shading has gaps/stripes."
-    )
-
-    # Verify canvas backing store matches expected DPR scaling
-    canvas_dims = page.evaluate("""() => {
-        const canvas = document.querySelector('.slope-grid-canvas');
-        const mapEl = document.getElementById('map');
-        const rect = mapEl.getBoundingClientRect();
-        return {
-            canvasW: canvas.width,
-            canvasH: canvas.height,
-            cssW: parseFloat(canvas.style.width),
-            cssH: parseFloat(canvas.style.height),
-            mapW: rect.width,
-            mapH: rect.height,
-            dpr: window.devicePixelRatio,
-        };
-    }""")
-    expected_backing = round(canvas_dims["cssW"] * canvas_dims["dpr"])
-    assert abs(canvas_dims["canvasW"] - expected_backing) <= 1, (
-        f"Canvas backing store {canvas_dims['canvasW']} doesn't match "
-        f"CSS width {canvas_dims['cssW']} * DPR {canvas_dims['dpr']} "
-        f"= {expected_backing}"
+    assert after["found"], "Slope grid image overlay disappeared after resize"
+    assert after["width"] > 100, (
+        f"Slope overlay too narrow after resize: {after['width']}px"
     )

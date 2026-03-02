@@ -515,142 +515,48 @@ const GradientTrackLayer = L.Layer.extend({
     },
 });
 
-// ── Slope Grid Overlay ─────────────────────────────────────────────
-// Renders the ground slope grid as a per-pixel canvas overlay with
-// bilinear interpolation of slope values. Works correctly because
-// the colormap transition at 30° is smooth (spread over 28-32°),
-// so interpolated slopes produce smooth color gradients.
-const SlopeGridLayer = L.Layer.extend({
-    initialize(slopeGrid, options) {
-        this._grid = slopeGrid;
-        L.setOptions(this, options);
-    },
+// ── Slope Grid Image Overlay ──────────────────────────────────────
+// Renders the slope grid to a static PNG image and uses Leaflet's
+// L.imageOverlay to display it. The browser handles all DPI scaling
+// natively for <img> elements, so this is immune to browser zoom
+// (Ctrl+/-) issues that plagued the previous canvas-per-frame approach.
+function renderSlopeImage(g) {
+    const canvas = document.createElement("canvas");
+    canvas.width = g.cols;
+    canvas.height = g.rows;
+    const ctx = canvas.getContext("2d");
+    const imgData = ctx.createImageData(g.cols, g.rows);
+    const pixels = imgData.data;
+    const cmap = GROUND_CMAP;
 
-    onAdd(map) {
-        this._map = map;
-        this._canvas = L.DomUtil.create("canvas", "slope-grid-canvas");
-        this._canvas.style.position = "absolute";
-        this._canvas.style.pointerEvents = "none";
-        map.getPanes().overlayPane.appendChild(this._canvas);
-        map.on("moveend zoomend resize", this._scheduleRedraw, this);
-        // Browser zoom (Ctrl+/-) changes devicePixelRatio without firing
-        // Leaflet events. Poll DPR to detect changes reliably — the
-        // matchMedia('resolution') approach missed rapid successive zooms.
-        this._lastDpr = window.devicePixelRatio || 1;
-        this._dprInterval = setInterval(() => {
-            const dpr = window.devicePixelRatio || 1;
-            if (dpr !== this._lastDpr) {
-                this._lastDpr = dpr;
-                // Browser zoom changes container CSS-pixel size; tell Leaflet
-                // so map.getSize() returns correct values for the redraw.
-                this._map.invalidateSize({ debounceMoveend: true });
-                this._scheduleRedraw();
+    // Row 0 in the grid = lat_min (south), but row 0 in the image = top (north).
+    // Flip vertically: image row r maps to grid row (rows - 1 - r).
+    for (let imgRow = 0; imgRow < g.rows; imgRow++) {
+        const gridRow = g.rows - 1 - imgRow;
+        const gridOff = gridRow * g.cols;
+        const imgOff = imgRow * g.cols;
+
+        for (let col = 0; col < g.cols; col++) {
+            const slope = g.data[gridOff + col];
+            const idx = (imgOff + col) * 4;
+
+            if (slope < 0) {
+                // No data — transparent
+                pixels[idx] = pixels[idx+1] = pixels[idx+2] = pixels[idx+3] = 0;
+                continue;
             }
-        }, 200);
-        this._scheduleRedraw();
-    },
 
-    onRemove(map) {
-        L.DomUtil.remove(this._canvas);
-        map.off("moveend zoomend resize", this._scheduleRedraw, this);
-        if (this._dprInterval) { clearInterval(this._dprInterval); this._dprInterval = null; }
-        if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
-    },
-
-    // Coalesce rapid moveend/zoomend events into a single redraw per
-    // animation frame. Fixes flaky rendering in Firefox where multiple
-    // events during zoom animations would clobber in-progress draws.
-    _scheduleRedraw() {
-        if (this._rafId) cancelAnimationFrame(this._rafId);
-        this._rafId = requestAnimationFrame(() => {
-            this._rafId = null;
-            this._redraw();
-        });
-    },
-
-    _redraw() {
-        const map = this._map;
-        const g = this._grid;
-        const size = map.getSize();
-        const w = size.x, h = size.y;
-        if (w <= 0 || h <= 0) return; // container not yet laid out
-
-        const topLeft = map.containerPointToLayerPoint([0, 0]);
-        L.DomUtil.setPosition(this._canvas, topLeft);
-
-        const dpr = window.devicePixelRatio || 1;
-        this._canvas.width = w * dpr;
-        this._canvas.height = h * dpr;
-        this._canvas.style.width = w + "px";
-        this._canvas.style.height = h + "px";
-
-        const ctx = this._canvas.getContext("2d");
-        const cw = w * dpr, canvasH = h * dpr;
-        const imgData = ctx.createImageData(cw, canvasH);
-        const pixels = imgData.data;
-
-        // Compute viewport corner lat/lons ONCE instead of per-pixel
-        // projection. At these scales the Mercator-to-linear error is
-        // sub-pixel so simple linear interpolation is fine.
-        const tlLL = map.containerPointToLatLng([0, 0]);
-        const brLL = map.containerPointToLatLng([w, h]);
-        const latTop = tlLL.lat, latBot = brLL.lat;
-        const lonLeft = tlLL.lng, lonRight = brLL.lng;
-
-        const latRange = g.lat_max - g.lat_min;
-        const lonRange = g.lon_max - g.lon_min;
-        const rowScale = (g.rows - 1) / latRange;
-        const colScale = (g.cols - 1) / lonRange;
-
-        for (let py = 0; py < canvasH; py++) {
-            const lat = latTop + (latBot - latTop) * (py / canvasH);
-            if (lat < g.lat_min || lat > g.lat_max) continue;
-
-            const rowF = (lat - g.lat_min) * rowScale;
-            const r0 = rowF | 0;  // fast floor for positive values
-            const r1 = Math.min(r0 + 1, g.rows - 1);
-            if (r0 < 0 || r1 >= g.rows) continue;
-            const fr = rowF - r0;
-            const r0off = r0 * g.cols, r1off = r1 * g.cols;
-
-            for (let px = 0; px < cw; px++) {
-                const lon = lonLeft + (lonRight - lonLeft) * (px / cw);
-                if (lon < g.lon_min || lon > g.lon_max) continue;
-
-                const colF = (lon - g.lon_min) * colScale;
-                const c0 = colF | 0;
-                const c1 = Math.min(c0 + 1, g.cols - 1);
-                if (c0 < 0 || c1 >= g.cols) continue;
-                const fc = colF - c0;
-
-                const s00 = g.data[r0off + c0];
-                const s10 = g.data[r1off + c0];
-                const s01 = g.data[r0off + c1];
-                const s11 = g.data[r1off + c1];
-                if (s00 < 0 || s10 < 0 || s01 < 0 || s11 < 0) continue;
-
-                // Bilinear interpolation in COLOR space: look up each
-                // corner's RGBA from the LUT directly (no array allocation)
-                // then blend. Avoids checkerboard at hard colormap boundaries.
-                const cmap = GROUND_CMAP;
-                const i00 = Math.min(Math.max(Math.round((s00 / 47) * 255), 0), 255) * 4;
-                const i10 = Math.min(Math.max(Math.round((s10 / 47) * 255), 0), 255) * 4;
-                const i01 = Math.min(Math.max(Math.round((s01 / 47) * 255), 0), 255) * 4;
-                const i11 = Math.min(Math.max(Math.round((s11 / 47) * 255), 0), 255) * 4;
-
-                const w00 = (1-fr) * (1-fc), w10 = fr * (1-fc);
-                const w01 = (1-fr) * fc, w11 = fr * fc;
-                const idx = (py * cw + px) * 4;
-                pixels[idx]     = (cmap[i00]*w00 + cmap[i10]*w10 + cmap[i01]*w01 + cmap[i11]*w11 + 0.5) | 0;
-                pixels[idx + 1] = (cmap[i00+1]*w00 + cmap[i10+1]*w10 + cmap[i01+1]*w01 + cmap[i11+1]*w11 + 0.5) | 0;
-                pixels[idx + 2] = (cmap[i00+2]*w00 + cmap[i10+2]*w10 + cmap[i01+2]*w01 + cmap[i11+2]*w11 + 0.5) | 0;
-                pixels[idx + 3] = (cmap[i00+3]*w00 + cmap[i10+3]*w10 + cmap[i01+3]*w01 + cmap[i11+3]*w11 + 0.5) | 0;
-            }
+            const ci = Math.min(Math.max(Math.round((slope / 47) * 255), 0), 255) * 4;
+            pixels[idx]     = cmap[ci];
+            pixels[idx + 1] = cmap[ci + 1];
+            pixels[idx + 2] = cmap[ci + 2];
+            pixels[idx + 3] = cmap[ci + 3];
         }
+    }
 
-        ctx.putImageData(imgData, 0, 0);
-    },
-});
+    ctx.putImageData(imgData, 0, 0);
+    return canvas.toDataURL("image/png");
+}
 
 // ── Map Legends (canvas-drawn for pixel-perfect alignment) ────────
 function renderLegends() {
@@ -820,9 +726,16 @@ function renderMap(track, slopeGrid, contours) {
 
     map = L.map("map", { attributionControl: false, zoomSnap: 0, maxBoundsViscosity: 1.0 });
 
-    // Slope angle shading as the base layer (fully opaque)
+    // Slope angle shading as a static image overlay (fully opaque).
+    // Rendered once to a PNG — the browser handles DPI scaling natively,
+    // so this is immune to browser zoom (Ctrl+/-) breaking the shading.
     if (slopeGrid) {
-        new SlopeGridLayer(slopeGrid).addTo(map);
+        const slopeDataUrl = renderSlopeImage(slopeGrid);
+        const slopeBounds = [
+            [slopeGrid.lat_min, slopeGrid.lon_min],
+            [slopeGrid.lat_max, slopeGrid.lon_max],
+        ];
+        L.imageOverlay(slopeDataUrl, slopeBounds).addTo(map);
     }
 
     // Contour lines from our DEM data
@@ -987,13 +900,6 @@ function renderMap(track, slopeGrid, contours) {
     }
     map.on("moveend", clampToGrid);
 
-    // visualViewport.resize fires reliably on browser zoom (Ctrl+/-)
-    // across all modern browsers, complementing the per-layer DPR polling.
-    if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", function() {
-            map.invalidateSize({ debounceMoveend: true });
-        });
-    }
 }
 
 // ── Cross-link: chart hover → map marker ───────────────────────────
