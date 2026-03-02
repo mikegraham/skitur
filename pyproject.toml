@@ -4,10 +4,12 @@ version = "0.1.0"
 description = "Analyze cross-country ski touring routes"
 requires-python = ">=3.10"
 dependencies = [
+    "contourpy",
     "flask",
     "gpxpy",
     "matplotlib",
     "numpy",
+    "orjson",
     "seamless-3dep",
     "srtm.py",
 ]

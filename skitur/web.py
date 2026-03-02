@@ -4,7 +4,6 @@ Run with: flask --app skitur.web run
 Generate static report: python -m skitur.web --report path/to/file.gpx [-o output.html]
 """
 
-import json
 import logging
 import math
 import tempfile
@@ -12,7 +11,8 @@ from pathlib import Path
 
 import contourpy
 import numpy as np
-from flask import Flask, request, jsonify, render_template
+import orjson
+from flask import Flask, Response, request, render_template
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +32,19 @@ def index():
     return render_template("index.html")
 
 
+def _json_error(msg: str, status: int = 400) -> tuple[Response, int]:
+    body = orjson.dumps({"error": msg})
+    return Response(body, status=status, content_type="application/json"), status
+
+
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
     if "gpx_file" not in request.files:
-        return jsonify({"error": "No GPX file uploaded"}), 400
+        return _json_error("No GPX file uploaded")
 
     gpx_file = request.files["gpx_file"]
     if gpx_file.filename == "":
-        return jsonify({"error": "No file selected"}), 400
+        return _json_error("No file selected")
 
     with tempfile.NamedTemporaryFile(suffix=".gpx", delete=False) as tmp:
         gpx_file.save(tmp)
@@ -49,14 +54,16 @@ def analyze():
     raw = tmp_path.read_text(errors="replace")
     if "<!DOCTYPE" in raw or "<!ENTITY" in raw:
         tmp_path.unlink(missing_ok=True)
-        return jsonify({"error": "Invalid GPX file"}), 400
+        return _json_error("Invalid GPX file")
 
     try:
         points, stats, score, grids = _compute_analysis(tmp_path)
-        return jsonify(_build_response(points, stats, score, grids))
+        data = _build_response(points, stats, score, grids)
+        body = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY)
+        return Response(body, content_type="application/json")
     except Exception as e:
         logger.exception("Analysis failed")
-        return jsonify({"error": "Analysis failed. Please check your GPX file."}), 500
+        return _json_error("Analysis failed. Please check your GPX file.", 500)
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -159,7 +166,7 @@ def _build_response(
             "avg_uphill_slope": score.avg_uphill_slope,
         },
         "slope_grid": {
-            "data": slope_flat.flatten().tolist(),
+            "data": slope_flat.flatten(),
             "rows": rows,
             "cols": cols,
             "lat_min": grids["lat_min"],
@@ -251,7 +258,8 @@ def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
         template_html = render_template("index.html")
 
     filename = gpx_path.stem.replace("_", " ")
-    data_json = json.dumps(data, separators=(",", ":"))
+    data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode()
+    filename_json = orjson.dumps(filename).decode()
 
     # Inject data and auto-render, hiding the upload form
     inject = (
@@ -260,7 +268,7 @@ def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
         f"  const data = {data_json};\n"
         "  trackData = data;\n"
         "  document.getElementById('upload-section').style.display = 'none';\n"
-        f"  renderResults(data, {json.dumps(filename)});\n"
+        f"  renderResults(data, {filename_json});\n"
         "});\n"
         "</script>"
     )

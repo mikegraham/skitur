@@ -478,7 +478,7 @@ def rendered_page(analysis_data):
     except ImportError:
         pytest.skip("playwright not installed")
 
-    import json as _json
+    import orjson
     import time
 
     with open(Path(__file__).parent.parent / "skitur" / "templates" / "index.html") as f:
@@ -488,7 +488,7 @@ def rendered_page(analysis_data):
     html = html.replace('id="upload-section"', 'id="upload-section" style="display:none"')
     html = html.replace("display: none; }", "display: block; }", 1)
     auto_render = (
-        "const embeddedData = " + _json.dumps(analysis_data) + ";\n"
+        "const embeddedData = " + orjson.dumps(analysis_data, option=orjson.OPT_SERIALIZE_NUMPY).decode() + ";\n"
         "trackData = embeddedData;\n"
         'document.addEventListener("DOMContentLoaded", function() {'
         '  renderResults(embeddedData, "test.gpx");'
