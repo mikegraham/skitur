@@ -34,7 +34,7 @@
 - [036](FIXED/036-regen-debug-script.md) ~~Make regen_debug.sh script~~ FIXED
 - [037](037-topo-line-labeling.md) Topo line labeling improvements
 - [038](FIXED/038-visual-testing.md) ~~Set up visual testing / screenshots~~ FIXED
-- [039](039-avy-time-stats.md) Add time-under-avy-slopes to stats
+- [039](FIXED/039-avy-time-stats.md) ~~Add time-under-avy-slopes to stats~~ FIXED
 - [040](FIXED/040-skinnier-layout.md) ~~Make the whole data column skinnier~~ FIXED
 - [044](FIXED/044-track-dist-hover-percent.md) ~~Track Distribution Hover Text and Y-axis Improvements~~ FIXED
 - [047](FIXED/047-elevation-profile-thinner.md) ~~Make elevation profile a little thinner~~ FIXED
