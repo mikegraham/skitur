@@ -959,12 +959,15 @@ function renderElevationChart(track) {
     };
 
     const layout = {
-        xaxis: { title: "Distance (mi)", spikemode: "across", spikethickness: 1,
-                 spikecolor: "#3b82f6", spikedash: "solid", spikesnap: "cursor" },
-        yaxis: { title: "Elevation (ft)" },
+        xaxis: { title: "Distance (mi)", showspikelines: true, spikemode: "across",
+                 spikethickness: 1, spikecolor: "#3b82f6", spikedash: "solid",
+                 spikesnap: "cursor" },
+        yaxis: { title: "Elevation (ft)", autorange: false,
+                 range: [Math.min(...elevations.filter(e => e != null)),
+                         Math.max(...elevations.filter(e => e != null))] },
         showlegend: false,
-        margin: { t: 10, r: 10, b: 40, l: 45 },
-        hovermode: "x",
+        margin: { t: 10, r: 5, b: 35, l: 40 },
+        hovermode: "closest",
     };
 
     Plotly.newPlot("elevation-chart", [bgTrace, ...lineTraces, hoverTrace], layout, { responsive: true, displaylogo: false });
@@ -1033,7 +1036,7 @@ function renderSlopesChart(track) {
         },
         showlegend: true,
         legend: { x: 1.0, y: 1.0, xanchor: "right" },
-        margin: { t: 10, r: 50, b: 40, l: 45 },
+        margin: { t: 10, r: 45, b: 35, l: 40 },
         hovermode: "x unified",
     };
 
