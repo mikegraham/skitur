@@ -9,6 +9,7 @@ from skitur.terrain import (
     get_elevations,
     get_ground_slope,
     get_ground_slopes,
+    get_ground_aspects,
     load_dem_for_bounds,
 )
 
@@ -21,6 +22,7 @@ class TrackPoint:
     distance: float  # cumulative distance in meters
     track_slope: float | None  # slope along path (deg), None for first point
     ground_slope: float | None  # terrain slope at this point (deg)
+    ground_aspect: float | None = None  # terrain aspect in compass degrees (0=N, 90=E)
 
 
 def _dem_cell_size() -> float:
@@ -90,6 +92,12 @@ def analyze_track(
         None if np.isnan(s) else float(s) for s in slope_arr
     ]
 
+    # Ground aspects from DEM (compass bearing: 0=N, 90=E, 180=S, 270=W)
+    aspect_arr = get_ground_aspects(lats_arr, lons_arr)
+    ground_aspects: list[float | None] = [
+        None if np.isnan(a) else float(a) for a in aspect_arr
+    ]
+
     cumulative_dists = _cumulative_distances(points)
 
     # Minimum slope baseline: for DEM-only elevations, use 2 cells;
@@ -130,6 +138,7 @@ def analyze_track(
             distance=float(cumulative_dists[i]),
             track_slope=track_slope,
             ground_slope=ground_slopes[i],
+            ground_aspect=ground_aspects[i],
         ))
 
     return result

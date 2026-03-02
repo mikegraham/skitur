@@ -76,7 +76,7 @@ class DEMCache:
         y_frac = float(np.interp(lat, self.y_coords, np.arange(len(self.y_coords))))
 
         val = map_coordinates(
-            self.data.astype(np.float64), [[y_frac], [x_frac]],
+            self.data, [[y_frac], [x_frac]],
             order=1, mode='nearest'
         )[0]
 
@@ -98,7 +98,7 @@ class DEMCache:
         y_frac = np.interp(lats, self.y_coords, np.arange(len(self.y_coords)))
 
         elevs = map_coordinates(
-            self.data.astype(np.float64), [y_frac, x_frac],
+            self.data, [y_frac, x_frac],
             order=1, mode='nearest'
         )
 
@@ -193,6 +193,12 @@ def load_dem_for_bounds(
                         data[yi, xi] = float(e)
             cell_size = CELL_SIZE_SRTM
 
+        # Ensure float dtype. The source is typically float32 from 3DEP
+        # or float64 from our SRTM fill loop. Either works fine for
+        # scipy.map_coordinates; the key is not to call .astype() on
+        # every lookup (that copies the entire array each time).
+        if not np.issubdtype(data.dtype, np.floating):
+            data = data.astype(np.float32)
         _dem_cache = DEMCache(
             x_coords=x_coords,
             y_coords=y_coords,
@@ -284,11 +290,13 @@ def get_ground_slope(lat: float, lon: float, cell_size_m: float | None = None) -
     return math.degrees(slope_rad)
 
 
-def get_ground_slopes(lats: np.ndarray, lons: np.ndarray,
-                      cell_size_m: float | None = None) -> np.ndarray:
-    """Return terrain slopes in degrees for arrays of (lat, lon).
+def _horn_gradients(lats: np.ndarray, lons: np.ndarray,
+                    cell_size_m: float | None = None
+                    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute Horn's method dz/dx, dz/dy gradients for arrays of (lat, lon).
 
-    Vectorized Horn's method on scattered points. Returns NaN where data missing.
+    Returns (dz_dx, dz_dy, any_nan) where any_nan is a boolean mask of points
+    where any neighbor elevation was missing.
     """
     if cell_size_m is None:
         if _dem_cache is not None:
@@ -337,15 +345,46 @@ def get_ground_slopes(lats: np.ndarray, lons: np.ndarray,
     dz_dx = ((c + 2*f + i) - (a + 2*d + g)) / (8 * cell_size_m)
     dz_dy = ((g + 2*h + i) - (a + 2*b + c)) / (8 * cell_size_m)
 
-    slope_rad = np.arctan(np.sqrt(dz_dx**2 + dz_dy**2))
-    slopes = np.degrees(slope_rad)
-
-    # Mark NaN where any neighbor was NaN
+    # Mask where any neighbor was NaN
     any_nan = (np.isnan(a) | np.isnan(b) | np.isnan(c) | np.isnan(d) |
                np.isnan(f) | np.isnan(g) | np.isnan(h) | np.isnan(i))
+
+    return dz_dx, dz_dy, any_nan
+
+
+def get_ground_slopes(lats: np.ndarray, lons: np.ndarray,
+                      cell_size_m: float | None = None) -> np.ndarray:
+    """Return terrain slopes in degrees for arrays of (lat, lon).
+
+    Vectorized Horn's method on scattered points. Returns NaN where data missing.
+    """
+    dz_dx, dz_dy, any_nan = _horn_gradients(lats, lons, cell_size_m)
+
+    slope_rad = np.arctan(np.sqrt(dz_dx**2 + dz_dy**2))
+    slopes = np.degrees(slope_rad)
     slopes[any_nan] = np.nan
 
     return slopes
+
+
+def get_ground_aspects(lats: np.ndarray, lons: np.ndarray,
+                       cell_size_m: float | None = None) -> np.ndarray:
+    """Return terrain aspect in compass degrees for arrays of (lat, lon).
+
+    0=N, 90=E, 180=S, 270=W. Returns NaN where data missing.
+    Uses the same Horn's method gradients as slope computation.
+    """
+    dz_dx, dz_dy, any_nan = _horn_gradients(lats, lons, cell_size_m)
+
+    # atan2(-dz_dy, dz_dx) gives angle from east, counter-clockwise.
+    # Convert to compass bearing: 0=N, 90=E, 180=S, 270=W.
+    # Compass bearing = 90 - math_angle (in degrees), then mod 360.
+    math_angle = np.degrees(np.arctan2(-dz_dy, dz_dx))
+    aspect = (90.0 - math_angle) % 360.0
+
+    aspect[any_nan] = np.nan
+
+    return aspect
 
 
 def get_slope_grid(
@@ -383,7 +422,7 @@ def get_slope_grid(
         return _slope_grid_interpolated(lat_min, lat_max, lon_min, lon_max, resolution)
 
     # Extract the native elevation sub-grid
-    elev_sub = elev_native[yi_min:yi_max+1, xi_min:xi_max+1].astype(np.float64)
+    elev_sub = elev_native[yi_min:yi_max+1, xi_min:xi_max+1]
 
     # Compute slopes at native resolution using Horn's method
     center_lat = (lat_min + lat_max) / 2

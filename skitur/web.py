@@ -143,6 +143,7 @@ def _build_response(
             "distance": p.distance,
             "track_slope": p.track_slope,
             "ground_slope": p.ground_slope,
+            "ground_aspect": p.ground_aspect,
         })
 
     slope_grid = grids["slope_grid"]
@@ -261,7 +262,7 @@ def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
     data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode()
     filename_json = orjson.dumps(filename).decode()
 
-    # Inject data and auto-render, hiding the upload form
+    # Inject data and auto-render, hiding the upload form and "Analyze Another"
     inject = (
         "<script>\n"
         "document.addEventListener('DOMContentLoaded', function() {\n"
@@ -269,6 +270,7 @@ def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
         "  trackData = data;\n"
         "  document.getElementById('upload-section').style.display = 'none';\n"
         f"  renderResults(data, {filename_json});\n"
+        "  document.getElementById('new-upload-btn').style.display = 'none';\n"
         "});\n"
         "</script>"
     )
