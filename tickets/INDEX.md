@@ -34,6 +34,7 @@
 - [036](FIXED/036-regen-debug-script.md) ~~Make regen_debug.sh script~~ FIXED
 - [037](037-topo-line-labeling.md) Topo line labeling improvements
 - [048](048-rate-limiting.md) Rate limiting on analysis endpoint
+- [049](049-aspect-rose.md) Aspect rose — polar heatmap of ground slope by compass direction
 - [038](FIXED/038-visual-testing.md) ~~Set up visual testing / screenshots~~ FIXED
 - [039](FIXED/039-avy-time-stats.md) ~~Add time-under-avy-slopes to stats~~ FIXED
 - [040](FIXED/040-skinnier-layout.md) ~~Make the whole data column skinnier~~ FIXED
