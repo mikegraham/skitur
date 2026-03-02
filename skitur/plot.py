@@ -522,6 +522,7 @@ def compute_map_grids(
     points: list[TrackPoint],
     padding: float = 0.003,
     resolution: int = 400,
+    contour_resolution: int | None = None,
     bounds: tuple[float, float, float, float] | None = None,
 ) -> dict:
     """Precompute elevation and slope grids shared by topo and slope maps.
@@ -531,7 +532,13 @@ def compute_map_grids(
 
     If bounds is given as (lat_min, lat_max, lon_min, lon_max), use those
     instead of computing from points + padding.
+
+    contour_resolution controls elevation/contour sampling density. If omitted,
+    it defaults to `resolution` (legacy behavior).
     """
+    if contour_resolution is None:
+        contour_resolution = resolution
+
     if bounds:
         lat_min, lat_max, lon_min, lon_max = bounds
     else:
@@ -540,16 +547,18 @@ def compute_map_grids(
         lat_min, lat_max = min(lats) - padding, max(lats) + padding
         lon_min, lon_max = min(lons) - padding, max(lons) + padding
 
-    lon_mesh, lat_mesh, elev_grid_ft = _sample_elevation_grid(
-        lat_min, lat_max, lon_min, lon_max, resolution
+    contour_lon_mesh, contour_lat_mesh, contour_elev_grid_ft = _sample_elevation_grid(
+        lat_min, lat_max, lon_min, lon_max, contour_resolution
     )
-    _, _, slope_grid = _sample_slope_grid(
+    lon_mesh, lat_mesh, slope_grid = _sample_slope_grid(
         lat_min, lat_max, lon_min, lon_max, resolution
     )
 
     return {
         'lon_mesh': lon_mesh, 'lat_mesh': lat_mesh,
-        'elev_grid_ft': elev_grid_ft, 'slope_grid': slope_grid,
+        'elev_grid_ft': contour_elev_grid_ft, 'slope_grid': slope_grid,
+        'contour_lon_mesh': contour_lon_mesh, 'contour_lat_mesh': contour_lat_mesh,
+        'contour_elev_grid_ft': contour_elev_grid_ft,
         'lat_min': lat_min, 'lat_max': lat_max,
         'lon_min': lon_min, 'lon_max': lon_max,
     }
@@ -568,9 +577,9 @@ def plot_topo_map(
 
     lat_min, lat_max = grids['lat_min'], grids['lat_max']
     lon_min, lon_max = grids['lon_min'], grids['lon_max']
-    lon_mesh = grids['lon_mesh']
-    lat_mesh = grids['lat_mesh']
-    elev_grid_ft = grids['elev_grid_ft']
+    contour_lon_mesh = grids.get('contour_lon_mesh', grids['lon_mesh'])
+    contour_lat_mesh = grids.get('contour_lat_mesh', grids['lat_mesh'])
+    elev_grid_ft = grids.get('contour_elev_grid_ft', grids['elev_grid_ft'])
 
     fig, ax = plt.subplots(figsize=(12, 9))
 
@@ -578,10 +587,10 @@ def plot_topo_map(
     valid = elev_grid_ft[~np.isnan(elev_grid_ft)]
     elev_norm = mcolors.Normalize(vmin=valid.min(), vmax=valid.max())
     elev_cmap = _make_elevation_cmap()
-    cf = ax.pcolormesh(lon_mesh, lat_mesh, elev_grid_ft, cmap=elev_cmap, norm=elev_norm)
+    cf = ax.pcolormesh(contour_lon_mesh, contour_lat_mesh, elev_grid_ft, cmap=elev_cmap, norm=elev_norm)
 
     # Topo contours
-    _draw_topo_contours(ax, lon_mesh, lat_mesh, elev_grid_ft)
+    _draw_topo_contours(ax, contour_lon_mesh, contour_lat_mesh, elev_grid_ft)
 
     # Track
     sm, max_slope = _draw_track_colored_by_slope(ax, points)
@@ -620,8 +629,10 @@ def plot_slope_map(
     lon_min, lon_max = grids['lon_min'], grids['lon_max']
     lon_mesh = grids['lon_mesh']
     lat_mesh = grids['lat_mesh']
-    elev_grid_ft = grids['elev_grid_ft']
     slope_grid = grids['slope_grid']
+    contour_lon_mesh = grids.get('contour_lon_mesh', lon_mesh)
+    contour_lat_mesh = grids.get('contour_lat_mesh', lat_mesh)
+    elev_grid_ft = grids.get('contour_elev_grid_ft', grids['elev_grid_ft'])
 
     fig, ax = plt.subplots(figsize=(12, 9))
 
@@ -630,7 +641,7 @@ def plot_slope_map(
     cf = ax.pcolormesh(lon_mesh, lat_mesh, slope_grid, cmap=ground_cmap, norm=ground_norm)
 
     # Topo contours
-    _draw_topo_contours(ax, lon_mesh, lat_mesh, elev_grid_ft)
+    _draw_topo_contours(ax, contour_lon_mesh, contour_lat_mesh, elev_grid_ft)
 
     # Track
     sm, max_slope = _draw_track_colored_by_slope(ax, points)

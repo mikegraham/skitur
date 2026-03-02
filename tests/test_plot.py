@@ -54,3 +54,30 @@ def test_map_plots_with_shared_grids(tmp_path, analyzed_track):
     assert topo.stat().st_size > 1000
     assert slope.exists()
     assert slope.stat().st_size > 1000
+
+
+def test_map_plots_with_decoupled_contour_resolution(tmp_path, analyzed_track):
+    """Contour/elevation grid can be coarser than slope shading grid."""
+    grids = compute_map_grids(
+        analyzed_track,
+        resolution=120,
+        contour_resolution=60,
+    )
+
+    assert grids["slope_grid"].shape == (120, 120)
+    assert grids["lon_mesh"].shape == (120, 120)
+    assert grids["lat_mesh"].shape == (120, 120)
+
+    assert grids["contour_elev_grid_ft"].shape == (60, 60)
+    assert grids["contour_lon_mesh"].shape == (60, 60)
+    assert grids["contour_lat_mesh"].shape == (60, 60)
+
+    topo = tmp_path / "topo_decoupled.png"
+    slope = tmp_path / "slope_decoupled.png"
+    plot_topo_map(analyzed_track, topo, grids=grids)
+    plot_slope_map(analyzed_track, slope, grids=grids)
+
+    assert topo.exists()
+    assert topo.stat().st_size > 1000
+    assert slope.exists()
+    assert slope.stat().st_size > 1000

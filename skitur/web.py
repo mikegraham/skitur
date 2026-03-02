@@ -67,9 +67,9 @@ def _compute_contours(grids: dict) -> dict:
     Returns dict with 'minor' and 'major' lists of polylines.
     Each polyline is a list of [lat, lon] pairs.
     """
-    elev_grid_ft = grids["elev_grid_ft"]
-    lat_mesh = grids["lat_mesh"]
-    lon_mesh = grids["lon_mesh"]
+    elev_grid_ft = grids.get("contour_elev_grid_ft", grids["elev_grid_ft"])
+    lat_mesh = grids.get("contour_lat_mesh", grids["lat_mesh"])
+    lon_mesh = grids.get("contour_lon_mesh", grids["lon_mesh"])
 
     valid = elev_grid_ft[~np.isnan(elev_grid_ft)]
     if len(valid) == 0:
@@ -208,11 +208,22 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, "TourScor
     # resolution (capped at 800 to limit payload size), we skip the
     # downsampling step entirely.
     from skitur.terrain import _dem_cache
-    resolution = 300
+    slope_resolution = 300
     if _dem_cache is not None:
         native_max = max(_dem_cache.data.shape)
-        resolution = min(native_max, 800)
-    grids = compute_map_grids(points, resolution=resolution, bounds=grid_bounds)
+        slope_resolution = min(native_max, 800)
+
+    # Decouple contour detail from slope shading detail. Keep slope shading at
+    # full resolution (anti-moire path unchanged), while capping contour
+    # extraction density for speed and payload size.
+    contour_resolution = min(slope_resolution, 300)
+
+    grids = compute_map_grids(
+        points,
+        resolution=slope_resolution,
+        contour_resolution=contour_resolution,
+        bounds=grid_bounds,
+    )
 
     return points, stats, score, grids
 
