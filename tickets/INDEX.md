@@ -6,7 +6,7 @@
 - [003](003-ground-colormap-not-sharp.md) Ground colormap still smoothed — REOPENED
 
 ## P1 - Important
-- [010](010-map-fill-max-zoom.md) Map should fill all space at max zoom-out — REOPENED
+- [010](FIXED/010-map-fill-max-zoom.md) ~~Map should fill all space at max zoom-out~~ FIXED
 - [011](FIXED/011-violin-plots-redesign.md) ~~Redesign violin/distribution plots~~ FIXED
 - [012](WONTFIX/012-more-scoring-categories.md) ~~Think up more scoring categories~~ WONTFIX
 - [013](FIXED/013-ground-colormap-orange-zone.md) ~~Ground colormap needs orange zone~~ FIXED
@@ -21,9 +21,9 @@
 - [022](022-ground-legend-title.md) Ground colormap label/title positioning
 - [023](FIXED/023-points-label.md) ~~"Points" -> "GPS points" in stats~~ FIXED
 - [024](024-map-view-toggle.md) Add slope angle / topo+features toggle above map
-- [025](025-fine-print-credits.md) Fine print section with credits, explanations, caveats
+- [025](FIXED/025-fine-print-credits.md) ~~Fine print section with credits, explanations, caveats~~ FIXED
 - [026](FIXED/026-distance-sigfigs.md) ~~Distance display - max 1 decimal place~~ FIXED
-- [027](027-mit-license.md) Add MIT license
+- [027](FIXED/027-mit-license.md) ~~Add MIT license~~ FIXED
 - [028](028-security-audit.md) Security audit
 - [029](029-launchability-audit.md) Launchability audit
 - [030](030-launch-plan.md) Launch plan / deployment / browser-side JS?
