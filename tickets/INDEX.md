@@ -3,7 +3,7 @@
 ## P0 - Critical
 - [001](FIXED/001-elevation-profile-broken.md) ~~Elevation profile line not connected properly~~ FIXED
 - [002](FIXED/002-heatmap-disconnects-on-zoom.md) ~~Heatmap disconnects from topo on browser zoom~~ FIXED
-- [003](003-ground-colormap-not-sharp.md) Ground colormap still smoothed — REOPENED
+- [003](FIXED/003-ground-colormap-not-sharp.md) ~~Ground colormap still smoothed~~ FIXED
 
 ## P1 - Important
 - [010](FIXED/010-map-fill-max-zoom.md) ~~Map should fill all space at max zoom-out~~ FIXED
