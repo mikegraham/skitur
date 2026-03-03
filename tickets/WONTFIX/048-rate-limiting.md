@@ -1,6 +1,9 @@
 # 048: Rate Limiting on Analysis Endpoint
-**Status:** OPEN
+**Status:** CLOSED - DUPLICATE OF #030
 **Priority:** P2
+
+## Resolution
+Duplicate of [030](../030-launch-plan.md), which already tracks launch/deployment hardening.
 
 ## Description
 The `/api/analyze` endpoint is CPU-intensive (10-30s per request, large numpy arrays in memory). No rate limiting exists. Concurrent requests can exhaust server resources and abuse upstream USGS 3DEP servers.

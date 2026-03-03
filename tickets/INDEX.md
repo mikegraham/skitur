@@ -34,7 +34,7 @@
 - [034](034-named-features.md) Named features (peaks, lakes, rivers, trails, roads)
 - [036](FIXED/036-regen-debug-script.md) ~~Make regen_debug.sh script~~ FIXED
 - [037](037-topo-line-labeling.md) Topo line labeling improvements
-- [048](048-rate-limiting.md) Rate limiting on analysis endpoint
+- [048](WONTFIX/048-rate-limiting.md) ~~Rate limiting on analysis endpoint~~ DUPLICATE of #030
 - [050](050-unit-toggle.md) Allow choice of mi/ft or km/m units
 - [052](052-dem-data-sources.md) Improve DEM data sources (Copernicus, European LiDAR, etc.)
 - [049](FIXED/049-aspect-rose.md) ~~Aspect rose — polar heatmap of ground slope by compass direction~~ FIXED
