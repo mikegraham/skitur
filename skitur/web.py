@@ -14,14 +14,14 @@ import numpy as np
 import orjson
 from flask import Flask, Response, request, render_template
 
-logger = logging.getLogger(__name__)
-
-from skitur.gpx import load_track
 from skitur.analyze import analyze_track, TrackPoint
+from skitur.gpx import load_track
+from skitur.mapdata import compute_map_grids, choose_contour_steps_ft
 from skitur.score import score_tour, TourScore
+from skitur.stats import compute_stats
 from skitur.terrain import load_dem_for_bounds
-from skitur.plot import compute_map_grids, choose_contour_steps_ft
-from skitur.cli import compute_stats
+
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload limit
