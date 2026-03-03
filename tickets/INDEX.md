@@ -55,6 +55,7 @@
 - [043](043-tufte-audit.md) Tufte-style Visual Audit of Web Presentation
 - [045](FIXED/045-ground-dist-degree-ticks.md) ~~Ground Angle Distribution - Degree Ticks on X-Axis~~ FIXED
 - [046](FIXED/046-remove-plotly-watermark.md) ~~Remove "Produced with Plotly.js" Watermark~~ FIXED
+- [056](056-track-stats-gap-and-score-card-width.md) Track Stats gap and Tour Quality Score card width
 
 ## Questions for User (ANSWERED)
 - Q1: (from #024) For the topo+features view, should we use OpenTopoMap tiles or something else? **-> OpenTopoMap is fine, unless we have a better idea.**
