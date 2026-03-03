@@ -1,8 +1,10 @@
-"""Terrain data access using USGS 3DEP (US) and Copernicus GLO-30 (global).
+"""Terrain data access with US high-resolution DEM + global fallback.
 
-3DEP provides 10m resolution for US locations.
-Copernicus GLO-30 provides 30m resolution globally.
-Both accessed via dem-stitcher.
+Resolution cascade:
+- US 3DEP: 10m via USGS
+- Copernicus GLO-30: 30m globally
+
+All accessed via dem-stitcher.
 """
 
 import logging
@@ -20,8 +22,9 @@ logger = logging.getLogger(__name__)
 # EPSG:4326 = WGS84 geographic coordinate system (lat/lon)
 CRS_WGS84 = 4326
 
-# Cell size for slope calculations (meters)
-CELL_SIZE_3DEP = 10.0   # 3DEP provides 10m resolution in US
+# Cell size for slope calculations (meters), matching the display resolution
+# we request from each DEM source.
+CELL_SIZE_3DEP = 10.0    # 3DEP provides 10m resolution in US
 CELL_SIZE_GLO30 = 30.0   # Copernicus GLO-30 provides 30m resolution globally
 
 # Persistent tile cache for dem-stitcher (it has no built-in cache)
@@ -139,12 +142,39 @@ def _coords_from_profile(
     return x_coords, y_coords
 
 
+def _stitch_dem_fast(stitch_fn, **kwargs):
+    """Call stitch_dem with rasterio.open patched to use /vsicurl/.
+
+    dem-stitcher opens S3-hosted COG tiles via rasterio.open("https://...s3...").
+    rasterio detects the S3 domain and invokes botocore to resolve AWS credentials,
+    which takes ~2s per call — even though these tiles are on PUBLIC buckets that
+    need no authentication.
+
+    By prefixing URLs with /vsicurl/, GDAL uses its curl driver instead of the
+    S3 driver, bypassing botocore entirely. This saves ~2s on every cold request.
+    Safe because _dem_lock serializes all callers.
+    """
+    import rasterio
+    _orig_open = rasterio.open
+
+    def _vsicurl_open(fp, *args, **kw):
+        if isinstance(fp, str) and '.s3.amazonaws.com/' in fp:
+            fp = f'/vsicurl/{fp}'
+        return _orig_open(fp, *args, **kw)
+
+    rasterio.open = _vsicurl_open
+    try:
+        return stitch_fn(**kwargs)
+    finally:
+        rasterio.open = _orig_open
+
+
 def load_dem_for_bounds(
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, padding: float = 0.01
 ) -> DEMCache:
     """Load DEM for a bounding box, caching for repeated queries.
 
-    Downloads 3DEP data for US locations, Copernicus GLO-30 for elsewhere.
+    Resolution cascade: US 3DEP (10m) > GLO-30 (30m).
     Skips the download if the in-memory cache already covers the requested bounds.
     Thread-safe: lock protects the cache check-and-update.
     """
@@ -162,14 +192,17 @@ def load_dem_for_bounds(
             return _dem_cache
 
         from dem_stitcher import stitch_dem
-
         center_lat = (lat_min + lat_max) / 2
         center_lon = (lon_min + lon_max) / 2
         is_us = _is_us_coverage(center_lat, center_lon)
-
-        dem_name = "3dep" if is_us else "glo_30"
-        cell_size = CELL_SIZE_3DEP if is_us else CELL_SIZE_GLO30
-        res = 1 / 3600 if not is_us else 1 / 3600 / 3
+        if is_us:
+            dem_name = "3dep"
+            cell_size = CELL_SIZE_3DEP
+            res = 1 / 3600 / 3
+        else:
+            dem_name = "glo_30"
+            cell_size = CELL_SIZE_GLO30
+            res = 1 / 3600
 
         _TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -183,13 +216,19 @@ def load_dem_for_bounds(
         logger.info("Fetching DEM (%s) for bounds [%.4f, %.4f, %.4f, %.4f]",
                      dem_name, *fetch_bounds)
 
-        data, profile = stitch_dem(
+        # Cache downloaded tiles to disk so subsequent cold-memory requests
+        # (server restart, new region) read from local files instead of S3.
+        tile_cache = _TILE_CACHE_DIR / dem_name
+        tile_cache.mkdir(parents=True, exist_ok=True)
+        stitch_kwargs = dict(
             bounds=fetch_bounds,
             dem_name=dem_name,
             dst_ellipsoidal_height=False,  # orthometric heights
             dst_area_or_point="Point",
             dst_resolution=res,
+            dst_tile_dir=tile_cache,
         )
+        data, profile = _stitch_dem_fast(stitch_dem, **stitch_kwargs)
 
         # Squeeze band dimension if present (stitch_dem returns 3D: [1, rows, cols])
         if data.ndim == 3:
@@ -246,7 +285,7 @@ def get_ground_slope(lat: float, lon: float, cell_size_m: float | None = None) -
     """Return terrain slope in degrees at (lat, lon) using Horn's method.
 
     Uses a 3x3 window centered on the query position with Sobel-like weighting.
-    Cell size defaults to 10m for US (3DEP) or 30m elsewhere (SRTM).
+    Cell size defaults to 10m for US (3DEP) or 30m elsewhere (GLO-30).
     """
     if cell_size_m is None:
         if _dem_cache is not None:

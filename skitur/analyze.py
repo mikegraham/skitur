@@ -5,9 +5,7 @@ import numpy as np
 
 from skitur.geo import haversine_distance, resample_track, RESAMPLE_THRESHOLD_M
 from skitur.terrain import (
-    get_elevation,
     get_elevations,
-    get_ground_slope,
     get_ground_slopes,
     get_ground_aspects,
     load_dem_for_bounds,
