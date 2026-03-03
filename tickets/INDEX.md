@@ -17,6 +17,7 @@
 - [053](053-concurrent-analysis.md) Improve analysis latency via concurrency
 - [054](054-default-dem-cache-seed-plan.md) Default DEM cache seeding plan for launch
 - [055](055-contour-line-spacing-standard.md) Standardize contour line spacing (use standard topo intervals)
+- [057](057-mobile-legend-bars-disappear.md) Colormap legend bars disappear below ~700px
 
 ## P2 - Nice to Have
 - [020](020-chart-horizontal-space.md) Elevation/slope profile horizontal space efficiency
