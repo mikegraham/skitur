@@ -291,6 +291,38 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, "TourScor
     return points, stats, score, grids
 
 
+def build_embedded_report_html(
+    template_html: str,
+    data: dict,
+    filename: str,
+    *,
+    hide_upload_section: bool = True,
+    hide_new_upload_button: bool = True,
+) -> str:
+    """Inject analysis JSON into the HTML template and auto-render results."""
+    data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode()
+    filename_json = orjson.dumps(filename).decode()
+
+    script_lines = [
+        "<script>",
+        "document.addEventListener('DOMContentLoaded', function() {",
+        f"  const data = {data_json};",
+        "  trackData = data;",
+    ]
+    if hide_upload_section:
+        script_lines.append("  document.getElementById('upload-section').style.display = 'none';")
+    script_lines.append(f"  renderResults(data, {filename_json});")
+    if hide_new_upload_button:
+        script_lines.append("  document.getElementById('new-upload-btn').style.display = 'none';")
+    script_lines.extend([
+        "});",
+        "</script>",
+    ])
+
+    inject = "\n".join(script_lines) + "\n"
+    return template_html.replace("</body>", inject + "</body>")
+
+
 def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
     """Generate a self-contained static HTML report for a GPX file.
 
@@ -311,25 +343,16 @@ def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
 
     # Render the template
     with app.app_context():
-        template_html = render_template("index.html", copyright_notice=_copyright_notice())
+        template_html = render_template("index.html")
 
     filename = gpx_path.stem.replace("_", " ")
-    data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode()
-    filename_json = orjson.dumps(filename).decode()
-
-    # Inject data and auto-render, hiding the upload form and "Analyze Another"
-    inject = (
-        "<script>\n"
-        "document.addEventListener('DOMContentLoaded', function() {\n"
-        f"  const data = {data_json};\n"
-        "  trackData = data;\n"
-        "  document.getElementById('upload-section').style.display = 'none';\n"
-        f"  renderResults(data, {filename_json});\n"
-        "  document.getElementById('new-upload-btn').style.display = 'none';\n"
-        "});\n"
-        "</script>"
+    html = build_embedded_report_html(
+        template_html=template_html,
+        data=data,
+        filename=filename,
+        hide_upload_section=True,
+        hide_new_upload_button=True,
     )
-    html = template_html.replace("</body>", inject + "</body>")
 
     output_path.write_text(html)
     return output_path

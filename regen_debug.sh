@@ -35,24 +35,20 @@ TEMPLATE=$(curl -s "http://127.0.0.1:$PORT/")
 # Inject data into the template to create a self-contained debug page
 .venv/bin/python3 -c "
 import json, sys
+from skitur.web import build_embedded_report_html
 
 template = sys.stdin.read()
-with open('$TMPJSON') as f:
+with open(sys.argv[1]) as f:
     data = json.load(f)
 
-data_json = json.dumps(data, separators=(',', ':'))
-
-inject = '<script>\n'
-inject += 'document.addEventListener(\"DOMContentLoaded\", function() {\n'
-inject += '    const data = ' + data_json + ';\n'
-inject += '    trackData = data;\n'
-inject += '    document.getElementById(\"upload-section\").style.display = \"none\";\n'
-inject += '    renderResults(data, \"' + '$(basename "$GPX_FILE")' + '\");\n'
-inject += '});\n'
-inject += '</script>'
-
-html = template.replace('</body>', inject + '</body>')
+html = build_embedded_report_html(
+    template_html=template,
+    data=data,
+    filename=sys.argv[2],
+    hide_upload_section=True,
+    hide_new_upload_button=False,
+)
 print(html)
-" <<< "$TEMPLATE" > "$OUT_FILE"
+" "$TMPJSON" "$(basename "$GPX_FILE")" <<< "$TEMPLATE" > "$OUT_FILE"
 
 echo "Generated $OUT_FILE ($(wc -c < "$OUT_FILE") bytes)"

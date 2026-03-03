@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from skitur.web import app, _compute_contours, _build_response
+from skitur.web import app, _compute_contours, _build_response, build_embedded_report_html
 from skitur.plot import compute_map_grids
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
@@ -485,24 +485,18 @@ def rendered_page(analysis_data):
     except ImportError:
         pytest.skip("playwright not installed")
 
-    import orjson
     import time
 
     with open(Path(__file__).parent.parent / "skitur" / "templates" / "index.html") as f:
-        html = f.read()
+        template_html = f.read()
 
-    # Build debug HTML
-    html = html.replace('id="upload-section"', 'id="upload-section" style="display:none"')
-    html = html.replace("display: none; }", "display: block; }", 1)
-    auto_render = (
-        "const embeddedData = " + orjson.dumps(analysis_data, option=orjson.OPT_SERIALIZE_NUMPY).decode() + ";\n"
-        "trackData = embeddedData;\n"
-        'document.addEventListener("DOMContentLoaded", function() {'
-        '  renderResults(embeddedData, "test.gpx");'
-        "});"
+    html = build_embedded_report_html(
+        template_html=template_html,
+        data=analysis_data,
+        filename="test.gpx",
+        hide_upload_section=True,
+        hide_new_upload_button=False,
     )
-    parts = html.rsplit("</script>", 1)
-    html = parts[0] + auto_render + "</script>" + parts[1]
 
     import tempfile
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:

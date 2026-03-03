@@ -6,16 +6,14 @@ into the template. Then loads it in headless Chromium and verifies that
 all visual elements render correctly.
 """
 
-import json
 import tempfile
 import time
-from io import BytesIO
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import sync_playwright
 
-from skitur.web import app
+from skitur.web import app, build_embedded_report_html
 
 GPX_FILE = Path(__file__).parent.parent / "Twin_Lakes.gpx"
 
@@ -45,18 +43,16 @@ def debug_html_path():
             content_type="multipart/form-data",
         )
     assert resp.status_code == 200, f"Analysis failed: {resp.data.decode()}"
-    data = json.loads(resp.data)
+    data = resp.get_json()
+    assert data is not None
 
-    # Inject auto-render script before </body>
-    inject_script = (
-        "<script>\n"
-        "document.addEventListener('DOMContentLoaded', function() {\n"
-        "    const data = " + json.dumps(data) + ";\n"
-        '    renderResults(data, "Twin_Lakes.gpx");\n'
-        "});\n"
-        "</script>"
+    html = build_embedded_report_html(
+        template_html=template_html,
+        data=data,
+        filename="Twin_Lakes.gpx",
+        hide_upload_section=True,
+        hide_new_upload_button=False,
     )
-    html = template_html.replace("</body>", inject_script + "\n</body>")
 
     tmp = tempfile.NamedTemporaryFile(
         suffix=".html", delete=False, mode="w", prefix="debug_"
