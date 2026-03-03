@@ -15,6 +15,7 @@
 - [016](016-brainstorm-plots.md) Brainstorm and add useful plots
 - [041](FIXED/041-remove-distribution-legend.md) ~~Remove Uphill/Downhill Legend~~ FIXED
 - [053](053-concurrent-analysis.md) Improve analysis latency via concurrency
+- [055](055-contour-line-spacing-standard.md) Standardize contour line spacing (use standard topo intervals)
 
 ## P2 - Nice to Have
 - [020](020-chart-horizontal-space.md) Elevation/slope profile horizontal space efficiency
