@@ -9,6 +9,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { overflow-x: hidden; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
                background: #f5f5f5; color: #333; }
 
@@ -18,6 +19,7 @@
         #upload-section h1 { font-size: 2em; margin-bottom: 4px; }
         #upload-section p { color: #666; margin-bottom: 20px; }
         #upload-form { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+        #gpx-input { max-width: 100%; }
         #analyze-btn { padding: 10px 30px; background: #2563eb; color: white;
                        border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
         #analyze-btn:disabled { background: #94a3b8; cursor: not-allowed; }
@@ -62,13 +64,18 @@
 
         .contour-label { background: none; border: none; text-align: center; }
         .contour-label span {
-            font-size: 9px; color: #333; padding: 0; white-space: nowrap;
+            font-size: 11px; color: #333; padding: 0; white-space: nowrap;
             text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
         }
 
         /* ── Responsive: single column on narrow screens ─────────── */
         @media (max-width: 700px) {
+            #upload-section { margin: 24px 12px; padding: 22px 16px; }
+            #header-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+            #header-bar h2 { font-size: 1.2em; line-height: 1.2; overflow-wrap: anywhere; }
+            #new-upload-btn { width: 100%; }
             #results-section { padding: 12px; }
+            #score-panel, #stats-panel { padding: 14px; }
             #info-row { flex-direction: column; }
             #charts-row { flex-direction: column; }
             #bottom-charts-row { flex-direction: column; }
@@ -77,6 +84,38 @@
             /* Map row: hide legends, let map fill width */
             #ground-legend, #track-legend { display: none; }
             #map { aspect-ratio: 1 / 1; }
+        }
+
+        /* Mobile target widths: 360-390 should look polished */
+        @media (max-width: 390px) {
+            #results-section { padding: 8px; }
+            #info-row { gap: 10px; }
+            #score-panel, #stats-panel { padding: 10px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+            #score-panel h3, #stats-panel h3 { margin-bottom: 8px; font-size: 0.96em; }
+            .score-total { font-size: 1.75em; margin-bottom: 8px; }
+            .score-bar { height: 6px; margin: 2px 0 5px; }
+            .stats-table td { padding: 2px 0; font-size: 0.86em; }
+            .chart-label { font-size: 0.9em; }
+            #elevation-chart, #slopes-chart, #violin-chart, #histogram-chart {
+                min-height: 170px;
+            }
+            #aspect-rose-chart, #aspect-dist-chart {
+                min-height: 185px;
+            }
+            #acknowledgements { font-size: 0.68em !important; }
+        }
+
+        /* Legacy-small fallback: still usable at ~320px */
+        @media (max-width: 330px) {
+            #results-section { padding: 6px; }
+            #score-panel, #stats-panel { padding: 12px; }
+            .stats-table td { font-size: 0.85em; }
+            #elevation-chart, #slopes-chart, #violin-chart, #histogram-chart {
+                min-height: 155px;
+            }
+            #aspect-rose-chart, #aspect-dist-chart {
+                min-height: 170px;
+            }
         }
 
         /* Mid-width: skinnier legend bars so map gets more room */
@@ -141,13 +180,13 @@
                 <div id="aspect-rose-chart"></div>
             </div>
             <div class="chart-wrapper" style="flex: 1 1 50%;">
-                <div class="chart-label">Distance by Aspect</div>
+                <div class="chart-label">Fraction on Aspect</div>
                 <div id="aspect-dist-chart"></div>
             </div>
         </div>
 
-        <div id="acknowledgements" style="margin-top: 24px; padding: 16px 0 8px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 0.75em; color: #999; line-height: 1.8;">
-            <div style="margin-bottom: 4px;">
+        <div id="acknowledgements" style="margin-top: 24px; padding: 14px 0 6px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 0.78em; color: #777; line-height: 1.45;">
+            <div style="margin-bottom: 3px;">
                 Many thanks to
                 <a href="https://www.python.org/" target="_blank" rel="noopener" style="color: #aaa;">Python</a>,
                 <a href="https://flask.palletsprojects.com/" target="_blank" rel="noopener" style="color: #aaa;">Flask</a>,
@@ -157,13 +196,18 @@
                 <a href="https://contourpy.readthedocs.io/" target="_blank" rel="noopener" style="color: #aaa;">ContourPy</a>,
                 <a href="https://leafletjs.com/" target="_blank" rel="noopener" style="color: #aaa;">Leaflet</a>,
                 and <a href="https://plotly.com/javascript/" target="_blank" rel="noopener" style="color: #aaa;">Plotly.js</a>.
-            </div>
-            <div>
                 Elevation data from
                 <a href="https://www.usgs.gov/3d-elevation-program" target="_blank" rel="noopener" style="color: #aaa;">USGS 3DEP</a> (US)
                 and <a href="https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model" target="_blank" rel="noopener" style="color: #aaa;">Copernicus GLO-30</a> (global)
-                via <a href="https://github.com/ACCESS-Cloud-Based-InSAR/dem-stitcher" target="_blank" rel="noopener" style="color: #aaa;">dem-stitcher</a>.
+                via <a href="https://github.com/ACCESS-Cloud-Based-InSAR/dem-stitcher" target="_blank" rel="noopener" style="color: #aaa;">dem-stitcher</a>,
+                and all the other tools and contributors that made this possible.
             </div>
+            <div style="margin-top: 2px;">
+                The software is provided "as is", without warranty of any kind, express or implied,
+                including but not limited to warranties of merchantability, fitness for a particular purpose, and
+                noninfringement. This report is for informational purposes only and is not professional safety advice.
+            </div>
+            <div style="margin-top: 2px;">{{ copyright_notice }}</div>
         </div>
     </div>
 
@@ -203,54 +247,58 @@ function slopeToColor(slopeDeg) {
 }
 
 // Ground slope colormap — hard transitions at 30° and 45° only.
-//   0-30   : milky/faint teal -> green -> yellow (safe terrain, desaturated)
-//   30-45  : bold orange -> red -> dark red      (avalanche-prone, HIGH saturation)
-//   45+    : gray                                (rock/ice, too steep for snow)
+//   0-30   : cool bluish-green -> sage -> muted tan (safe terrain, desaturated)
+//   30-45  : bold orange -> red -> dark red         (avalanche-prone, HIGH saturation)
+//   45+    : gray                                   (rock/ice, too steep for snow)
 // Precompute a 256-entry lookup table: slope 0-47 deg -> [r,g,b,a] bytes
 const GROUND_CMAP = (function() {
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function smoothstep(t) { return t * t * (3 - 2 * t); }
+
     const lut = new Uint8Array(256 * 4); // 256 entries x RGBA
     for (let i = 0; i < 256; i++) {
         const slope = (i / 255) * 47; // 0-47 degrees
         let r, g, b;
         if (slope < 30) {
-            // Contour-plot style: gradient in low range, plateau near 30°
-            // Cool teal -> sage -> tan (gradient) then FLAT tan plateau 20-30°
-            if (slope < 10) {
-                // 0-10°: cool gray-teal to sage green
-                const s = slope / 10;
-                r = 0.72 + 0.06 * s;
-                g = 0.78 + 0.02 * s;
-                b = 0.74 - 0.16 * s;
-            } else if (slope < 20) {
-                // 10-20°: sage green to warm tan
-                const s = (slope - 10) / 10;
-                r = 0.78 + 0.06 * s;
-                g = 0.80 - 0.06 * s;
-                b = 0.58 - 0.12 * s;
+            // 0-30°: dynamic but washed-out, with no blue bias.
+            // Progression: muted green -> grayish tan -> pale yellow.
+            const t = slope / 30;
+            if (t < 0.45) {
+                // 0-13.5°: muted green to sage-khaki
+                const s = smoothstep(t / 0.45);
+                r = lerp(0.62, 0.68, s);
+                g = lerp(0.74, 0.73, s);
+                b = lerp(0.58, 0.56, s);
+            } else if (t < 0.70) {
+                // 13.5-21°: sage-khaki to a short grayish tan transition
+                const s = smoothstep((t - 0.45) / 0.25);
+                r = lerp(0.68, 0.77, s);
+                g = lerp(0.73, 0.76, s);
+                b = lerp(0.56, 0.54, s);
             } else {
-                // 20-30°: FLAT warm tan plateau (barely changes)
-                const s = (slope - 20) / 10;
-                r = 0.84 + 0.01 * s;
-                g = 0.74 + 0.01 * s;
-                b = 0.46 + 0.02 * s;
+                // 21-30°: short tan -> longer washed-out yellow ramp (not orange)
+                const s = smoothstep((t - 0.70) / 0.30);
+                r = lerp(0.77, 0.88, s);
+                g = lerp(0.76, 0.86, s);
+                b = lerp(0.54, 0.43, s);
             }
         } else if (slope < 45) {
-            // 30+: FLAT vivid orange plateau near 30°, then gradient to dark red
-            if (slope < 36) {
-                // 30-36°: solid vivid orange (barely changes)
-                const s = (slope - 30) / 6;
+            // 30+: keep a short vivid orange shelf, then turn red sooner.
+            if (slope < 34) {
+                // 30-34°: solid vivid orange (short plateau)
+                const s = (slope - 30) / 4;
                 r = 0.95;
                 g = 0.55 - 0.05 * s;
                 b = 0.05;
-            } else if (slope < 40) {
-                // 36-40°: orange to red
-                const s = (slope - 36) / 4;
+            } else if (slope < 37) {
+                // 34-37°: rapid orange -> red (so red appears ~3° earlier)
+                const s = (slope - 34) / 3;
                 r = 0.95 - 0.10 * s;
                 g = 0.50 - 0.25 * s;
                 b = 0.05;
             } else {
-                // 40-45°: red to dark red
-                const s = (slope - 40) / 5;
+                // 37-45°: red to dark red
+                const s = (slope - 37) / 8;
                 r = 0.85 - 0.30 * s;
                 g = 0.25 - 0.15 * s;
                 b = 0.05 + 0.01 * s;
@@ -891,12 +939,12 @@ function renderMap(track, slopeGrid, contours) {
         ? L.latLngBounds([slopeGrid.lat_min, slopeGrid.lon_min], [slopeGrid.lat_max, slopeGrid.lon_max])
         : L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.5);
 
-    // MinZoom: the zoom where grid fills the map (can't zoom out past shading).
-    // Use padding: [1,1] so the grid slightly more than fills the viewport,
-    // preventing sub-pixel gray slivers at the edges.
-    map.fitBounds(gridBounds, { padding: [1, 1] });
+    // MinZoom: the zoom where the full shaded grid fits in view.
+    // Use zero padding so users can always zoom out to see the whole extent.
+    map.fitBounds(gridBounds, { padding: [0, 0] });
+    const MIN_ZOOM_FIT_EPS = 0.05;
     const gridZoom = map.getZoom();
-    map.setMinZoom(gridZoom);
+    map.setMinZoom(gridZoom - MIN_ZOOM_FIT_EPS);
 
     // Default view: track barely fits with minimal buffer.
     // Must set this BEFORE enabling bounds constraint so fitBounds can
@@ -921,6 +969,19 @@ function renderMap(track, slopeGrid, contours) {
         map.setMaxBounds(null);
     });
     map.on("zoomend", function() {
+        map.setMaxBounds(gridBounds);
+    });
+
+    // Mobile browsers can change viewport size after load (URL bar show/hide).
+    // Recompute minZoom from current map size so full-grid zoom-out remains possible.
+    map.on("resize", function() {
+        const prevCenter = map.getCenter();
+        const prevZoom = map.getZoom();
+        map.setMaxBounds(null);
+        map.fitBounds(gridBounds, { padding: [0, 0], animate: false });
+        const newMinZoom = map.getZoom();
+        map.setMinZoom(newMinZoom - MIN_ZOOM_FIT_EPS);
+        map.setView(prevCenter, Math.max(prevZoom, newMinZoom - MIN_ZOOM_FIT_EPS), { animate: false });
         map.setMaxBounds(gridBounds);
     });
 
@@ -1259,9 +1320,9 @@ function renderTrackDistribution(track) {
         showlegend: false,
         annotations: [
             { x: visibleMax - 1, y: 0.95, xref: "x", yref: "paper", text: "Uphill \u2191",
-              showarrow: false, font: { size: 11, color: "#666" }, xanchor: "right" },
+              showarrow: false, font: { size: 12, color: "#666" }, xanchor: "right" },
             { x: visibleMax - 1, y: 0.05, xref: "x", yref: "paper", text: "Downhill \u2193",
-              showarrow: false, font: { size: 11, color: "#666" }, xanchor: "right" },
+              showarrow: false, font: { size: 12, color: "#666" }, xanchor: "right" },
         ],
     };
 
@@ -1331,10 +1392,9 @@ function renderAspectRose(data) {
         return `rgb(${rgba[0]},${rgba[1]},${rgba[2]})`;
     }
 
-    // 16 angular bins (22.5 deg each)
-    const DIR_LABELS = ["N","NNE","NE","ENE","E","ESE","SE","SSE",
-                        "S","SSW","SW","WSW","W","WNW","NW","NNW"];
-    const N_DIRS = 16;
+    // 8 angular bins (45 deg each): standard avalanche aspect sectors.
+    const DIR_LABELS = ["N","NE","E","SE","S","SW","W","NW"];
+    const N_DIRS = 8;
     const DIR_WIDTH = 360 / N_DIRS; // 22.5 degrees
 
     // Radial bins: 15-degree slope increments (0-15, 15-30, 30-45)
@@ -1369,20 +1429,17 @@ function renderAspectRose(data) {
         grid[dirBin][slopeBin] += weight * 100; // percentage
     }
 
-    // Find max density for opacity normalization and max occupied slope
+    // Find max density for opacity normalization
     let maxDensity = 0;
-    let maxOccupiedSlope = 0;
     for (let d = 0; d < N_DIRS; d++) {
         for (let s = 0; s < N_SLOPE_BINS; s++) {
             if (grid[d][s] > maxDensity) maxDensity = grid[d][s];
-            if (grid[d][s] > 0) maxOccupiedSlope = Math.max(maxOccupiedSlope, (s + 1) * SLOPE_BIN_SIZE);
         }
     }
     if (maxDensity === 0) return;
 
-    // Radial range matches bin edges: always show at least 0-30 (avy band),
-    // extend to 45 if there's data above 30.
-    const radialMax = maxOccupiedSlope > 30 ? 45 : 30;
+    // Always show full 0-45 so the 30-45 avy ring is visible even if empty.
+    const radialMax = 45;
     const tickVals = [];
     const tickText = [];
     for (let v = 0; v <= radialMax; v += SLOPE_BIN_SIZE) {
@@ -1470,9 +1527,8 @@ function renderAspectDist(data) {
     const validPoints = track.filter(p => p.ground_slope != null && p.ground_aspect != null);
     if (validPoints.length === 0) return;
 
-    const DIR_LABELS = ["N","NNE","NE","ENE","E","ESE","SE","SSE",
-                        "S","SSW","SW","WSW","W","WNW","NW","NNW"];
-    const N_DIRS = 16;
+    const DIR_LABELS = ["N","NE","E","SE","S","SW","W","NW"];
+    const N_DIRS = 8;
     const DIR_WIDTH = 360 / N_DIRS;
     const STEEP_THRESHOLD = 30;
 
@@ -1527,10 +1583,9 @@ function renderAspectDist(data) {
     const layout = {
         polar: {
             radialaxis: {
-                ticksuffix: "%",
                 showline: false,
+                showticklabels: false, // keep rings, remove percent labels
                 gridcolor: "rgba(0,0,0,0.15)",
-                tickfont: { size: 9, color: "#999" },
                 angle: 45,
             },
             angularaxis: {

@@ -6,7 +6,9 @@ Generate static report: python -m skitur.web --report path/to/file.gpx [-o outpu
 
 import logging
 import math
+import re
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import contourpy
@@ -27,9 +29,50 @@ app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload limit
 
 
+def _project_display_name() -> str:
+    """Read project name from pyproject.toml with a safe fallback."""
+    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    default_name = "Skitur"
+
+    try:
+        raw = pyproject_path.read_text(encoding="utf-8")
+    except Exception:
+        return default_name
+
+    # Preferred: tomllib (Python 3.11+)
+    try:
+        import tomllib  # type: ignore[attr-defined]
+        data = tomllib.loads(raw)
+        name = data.get("project", {}).get("name")
+        if isinstance(name, str) and name.strip():
+            value = name.strip().replace("-", " ")
+            return value.title() if value == value.lower() else value
+    except Exception:
+        pass
+
+    # Fallback parser for environments without tomllib.
+    section_match = re.search(r"(?ms)^\[project\]\s*(.*?)^\[", raw + "\n[")
+    if section_match:
+        section = section_match.group(1)
+        name_match = re.search(r'(?m)^\s*name\s*=\s*"([^"]+)"\s*$', section)
+        if name_match:
+            value = name_match.group(1).strip().replace("-", " ")
+            if value:
+                return value.title() if value == value.lower() else value
+
+    return default_name
+
+
+def _copyright_notice() -> str:
+    year = datetime.now(timezone.utc).year
+    display_name = _project_display_name()
+    owner = display_name if display_name.lower().endswith("team") else f"{display_name} Team"
+    return f"Copyright (c) {year} {owner}."
+
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", copyright_notice=_copyright_notice())
 
 
 def _json_error(msg: str, status: int = 400) -> tuple[Response, int]:
@@ -268,7 +311,7 @@ def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
 
     # Render the template
     with app.app_context():
-        template_html = render_template("index.html")
+        template_html = render_template("index.html", copyright_notice=_copyright_notice())
 
     filename = gpx_path.stem.replace("_", " ")
     data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode()
