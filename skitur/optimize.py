@@ -278,74 +278,11 @@ def optimize_hood_example():
     print(f"\nResult: {len(result.route)} points, cost={result.cost:.2f}")
     print(f"Iterations: {result.iterations}")
 
-    # Plot comparison
-    _plot_comparison(initial_points, result.route, waypoints)
+    # Visualization helper intentionally removed from core package to keep
+    # runtime dependencies lightweight (no matplotlib requirement).
+    print("Route comparison plotting is disabled in this build.")
 
     return result
-
-
-def _plot_comparison(
-    initial: list[tuple[float, float]],
-    optimized: list[tuple[float, float]],
-    waypoints: list[Waypoint],
-):
-    """Plot initial vs optimized routes on terrain."""
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from skitur.terrain import get_slope_grid, load_dem_for_bounds
-    from skitur.plot import _make_ground_cmap
-
-    # Get bounds
-    all_lats = [p[0] for p in initial + optimized]
-    all_lons = [p[1] for p in initial + optimized]
-    lat_min, lat_max = min(all_lats) - 0.005, max(all_lats) + 0.005
-    lon_min, lon_max = min(all_lons) - 0.005, max(all_lons) + 0.005
-
-    # Load terrain
-    load_dem_for_bounds(lat_min, lat_max, lon_min, lon_max)
-    lon_mesh, lat_mesh, slope_grid = get_slope_grid(
-        lat_min, lat_max, lon_min, lon_max, 200
-    )
-
-    # Plot
-    fig, ax = plt.subplots(figsize=(10, 8))
-
-    ground_cmap, ground_norm = _make_ground_cmap()
-    ax.pcolormesh(lon_mesh, lat_mesh, slope_grid, cmap=ground_cmap, norm=ground_norm)
-
-    # Initial route (red dashed)
-    init_lats = [p[0] for p in initial]
-    init_lons = [p[1] for p in initial]
-    ax.plot(init_lons, init_lats, 'r--', linewidth=2, label='Initial', alpha=0.7)
-
-    # Optimized route (blue solid)
-    opt_lats = [p[0] for p in optimized]
-    opt_lons = [p[1] for p in optimized]
-    ax.plot(opt_lons, opt_lats, 'b-', linewidth=2, label='Optimized')
-
-    # Waypoints
-    for wp in waypoints:
-        marker = 's' if wp.required else 'o'
-        color = 'white' if wp.required else 'yellow'
-        ax.plot(wp.lon, wp.lat, marker, markersize=10, color=color,
-                markeredgecolor='black', markeredgewidth=2)
-        if wp.name:
-            ax.annotate(wp.name, (wp.lon, wp.lat), xytext=(5, 5),
-                       textcoords='offset points', fontsize=8)
-
-    ax.set_xlabel('Longitude')
-    ax.set_ylabel('Latitude')
-    ax.set_title('Route Optimization: Initial (red) vs Optimized (blue)')
-    ax.legend(loc='upper right')
-
-    # Set aspect ratio
-    center_lat = (lat_min + lat_max) / 2
-    ax.set_aspect(1.0 / np.cos(np.radians(center_lat)))
-
-    plt.tight_layout()
-    plt.savefig('optimized_route.png', dpi=150)
-    print("\nSaved comparison to optimized_route.png")
-    plt.close()
 
 
 if __name__ == "__main__":

@@ -5,11 +5,11 @@ import math
 from io import BytesIO
 from pathlib import Path
 
-import numpy as np
 import pytest
 
-from skitur.web import app, _compute_contours, _build_response, build_embedded_report_html
-from skitur.plot import compute_map_grids
+from skitur.mapdata import compute_map_grids
+from skitur.stats import compute_stats
+from skitur.web import app, _build_response, build_embedded_report_html
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
 
@@ -28,7 +28,6 @@ def analysis_data():
     from skitur.analyze import analyze_track
     from skitur.score import score_tour
     from skitur.terrain import load_dem_for_bounds
-    from skitur.cli import compute_stats
 
     raw = load_track(TEST_GPX)
     lats = [p[0] for p in raw]
@@ -276,48 +275,6 @@ def test_grid_aspect_ratio_reasonable(analysis_data):
     assert ratio <= 3.0, f"Grid aspect ratio {ratio:.1f}:1 too extreme"
 
 
-# ── Colormap tests ────────────────────────────────────────────────────
-
-def test_ground_colormap_hard_transition_at_30():
-    """The ground slope colormap in plot.py must have a hard color jump at 30 deg.
-
-    This validates the Python colormap — the JS colormap should match.
-    """
-    from skitur.plot import _make_ground_cmap
-    cmap, norm = _make_ground_cmap()
-
-    color_29 = cmap(norm(29.5))  # just below 30 deg
-    color_31 = cmap(norm(30.5))  # just above 30 deg
-
-    # Below 30 deg should be yellow-ish (high R, high G, low B)
-    assert color_29[1] > 0.5, f"29.5 deg green channel too low: {color_29[1]}"
-    # Above 30 deg should be red (high R, low G)
-    assert color_31[0] > 0.5, f"30.5 deg red channel too low: {color_31[0]}"
-    assert color_31[1] < 0.3, f"30.5 deg green channel too high: {color_31[1]}"
-
-
-def test_ground_colormap_hard_transition_at_45():
-    """Gray jump at 45 deg."""
-    from skitur.plot import _make_ground_cmap
-    cmap, norm = _make_ground_cmap()
-
-    color_44 = cmap(norm(44))
-    color_46 = cmap(norm(46))
-
-    # 44 deg should still be reddish/dark
-    # 46 deg should be gray (R approx G approx B)
-    assert abs(color_46[0] - color_46[1]) < 0.1, \
-        f"46 deg should be gray but R={color_46[0]:.2f} G={color_46[1]:.2f}"
-
-
-def test_ground_colormap_green_is_near_zero():
-    """Low slopes (0-5 deg) should be greenish."""
-    from skitur.plot import _make_ground_cmap
-    cmap, norm = _make_ground_cmap()
-    color_2 = cmap(norm(2))
-    assert color_2[1] > 0.5, f"2 deg should be green-ish, got G={color_2[1]:.2f}"
-
-
 # ── Template tests ────────────────────────────────────────────────────
 
 def test_template_has_required_js_functions(client):
@@ -384,7 +341,6 @@ def twin_lakes_data():
     from skitur.analyze import analyze_track
     from skitur.score import score_tour
     from skitur.terrain import load_dem_for_bounds
-    from skitur.cli import compute_stats
 
     raw = load_track(TWIN_LAKES_GPX)
     lats = [p[0] for p in raw]
