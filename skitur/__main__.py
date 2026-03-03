@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from skitur.web import generate_report
+from skitur.report import generate_report
 
 
 def parse_args() -> argparse.Namespace:

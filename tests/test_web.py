@@ -8,8 +8,9 @@ from pathlib import Path
 import pytest
 
 from skitur.mapdata import compute_map_grids
+from skitur.report import _build_response, build_embedded_report_html
 from skitur.stats import compute_stats
-from skitur.web import app, _build_response, build_embedded_report_html
+from skitur.app import app
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
 

@@ -11,7 +11,7 @@ PORT=5199
 cd "$SCRIPT_DIR"
 
 # Start Flask server in background
-.venv/bin/python3 -m skitur.web --port "$PORT" &
+.venv/bin/python3 -m skitur.app --port "$PORT" &
 SERVER_PID=$!
 trap "kill $SERVER_PID 2>/dev/null" EXIT
 
@@ -35,7 +35,7 @@ TEMPLATE=$(curl -s "http://127.0.0.1:$PORT/")
 # Inject data into the template to create a self-contained debug page
 .venv/bin/python3 -c "
 import json, sys
-from skitur.web import build_embedded_report_html
+from skitur.report import build_embedded_report_html
 
 template = sys.stdin.read()
 with open(sys.argv[1]) as f:
