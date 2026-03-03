@@ -42,6 +42,8 @@
         .score-total { font-size: 2.5em; font-weight: bold; margin-bottom: 12px; }
         .score-bar { height: 8px; background: #e5e7eb; border-radius: 4px; margin: 4px 0 8px; }
         .score-bar-fill { height: 100%; border-radius: 4px; }
+        .score-subrow { display: flex; justify-content: space-between; font-size: 0.9em; gap: 8px; }
+        .score-metrics { margin-top: 8px; font-size: 0.85em; color: #666; line-height: 1.3; }
         .stats-table { width: 100%; border-collapse: collapse; }
         .stats-table td { padding: 4px 0; font-size: 0.95em; }
         .stats-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
@@ -61,6 +63,32 @@
         #bottom-charts-row { display: flex; gap: 16px; margin-bottom: 16px; }
         #violin-chart, #histogram-chart, #aspect-rose-chart, #aspect-dist-chart { min-height: 220px; background: white; border-radius: 8px;
                            padding: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        .aspect-charts-grid { display: flex; gap: 16px; margin-bottom: 16px; }
+        .aspect-chart-column { flex: 1 1 50%; }
+        #acknowledgements {
+            margin-top: 24px;
+            padding: 14px 0 6px;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+            color: #777;
+            line-height: 1.45;
+            font-size: 0.84em;
+        }
+        .acknowledgements-paragraph { margin-top: 2px; }
+        .acknowledgements-link { color: #aaa; }
+
+        /* Keep labels available to assistive tech without changing layout. */
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
 
         .contour-label { background: none; border: none; text-align: center; }
         .contour-label span {
@@ -79,10 +107,11 @@
             #info-row { flex-direction: column; }
             #charts-row { flex-direction: column; }
             #bottom-charts-row { flex-direction: column; }
-            .aspect-charts-row { flex-direction: column !important; }
+            .aspect-charts-grid { flex-direction: column !important; }
 
-            /* Map row: hide legends, let map fill width */
-            #ground-legend, #track-legend { display: none; }
+            /* Keep side legends visible on phones; narrow them to preserve map area. */
+            #map-row { gap: 2px; }
+            #ground-legend, #track-legend { width: 44px; font-size: 9px; }
             #map { aspect-ratio: 1 / 1; }
         }
 
@@ -91,10 +120,12 @@
             #results-section { padding: 8px; }
             #info-row { gap: 10px; }
             #score-panel, #stats-panel { padding: 10px; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
-            #score-panel h3, #stats-panel h3 { margin-bottom: 8px; font-size: 0.96em; }
+            #score-panel h3, #stats-panel h3 { margin-bottom: 8px; font-size: 0.92em; }
             .score-total { font-size: 1.75em; margin-bottom: 8px; }
             .score-bar { height: 6px; margin: 2px 0 5px; }
-            .stats-table td { padding: 2px 0; font-size: 0.86em; }
+            .score-subrow { font-size: 0.8em; }
+            .score-metrics { font-size: 0.76em; line-height: 1.24; margin-top: 6px; }
+            .stats-table td { padding: 2px 0; font-size: 0.8em; }
             .chart-label { font-size: 0.9em; }
             #elevation-chart, #slopes-chart, #violin-chart, #histogram-chart {
                 min-height: 170px;
@@ -102,20 +133,25 @@
             #aspect-rose-chart, #aspect-dist-chart {
                 min-height: 185px;
             }
-            #acknowledgements { font-size: 0.68em !important; }
+            #ground-legend, #track-legend { width: 36px; font-size: 8px; }
+            #acknowledgements { font-size: 0.74em; }
         }
 
         /* Legacy-small fallback: still usable at ~320px */
         @media (max-width: 330px) {
             #results-section { padding: 6px; }
             #score-panel, #stats-panel { padding: 12px; }
-            .stats-table td { font-size: 0.85em; }
+            #score-panel h3, #stats-panel h3 { font-size: 0.88em; }
+            .score-subrow { font-size: 0.76em; }
+            .score-metrics { font-size: 0.72em; line-height: 1.2; margin-top: 6px; }
+            .stats-table td { font-size: 0.76em; padding: 1px 0; }
             #elevation-chart, #slopes-chart, #violin-chart, #histogram-chart {
                 min-height: 155px;
             }
             #aspect-rose-chart, #aspect-dist-chart {
                 min-height: 170px;
             }
+            #ground-legend, #track-legend { width: 32px; font-size: 8px; }
         }
 
         /* Mid-width: skinnier legend bars so map gets more room */
@@ -126,22 +162,23 @@
     </style>
 </head>
 <body>
-    <div id="upload-section">
-        <h1>Skitur</h1>
-        <p>Upload a GPX file to analyze your XC ski tour.</p>
-        <form id="upload-form">
-            <input type="file" id="gpx-input" accept=".gpx" />
-            <button type="submit" id="analyze-btn">Analyze</button>
-        </form>
-        <div id="loading">Analyzing track (may take 10-30s for DEM download)...</div>
-        <div id="error"></div>
-    </div>
-
-    <div id="results-section">
-        <div id="header-bar">
-            <h2 id="tour-name"></h2>
-            <button id="new-upload-btn">Analyze Another</button>
+        <div id="upload-section">
+            <h1>Skitur</h1>
+            <p>Upload a GPX file to analyze your XC ski tour.</p>
+            <form id="upload-form">
+                <label class="visually-hidden" for="gpx-input">GPX file</label>
+                <input type="file" id="gpx-input" accept=".gpx" />
+                <button type="submit" id="analyze-btn">Analyze</button>
+            </form>
+            <div id="loading" role="status" aria-live="polite" aria-atomic="true">Analyzing track (may take 10-30s for DEM download)...</div>
+            <div id="error" role="alert" aria-live="assertive"></div>
         </div>
+
+        <div id="results-section">
+            <div id="header-bar">
+                <h2 id="tour-name"></h2>
+                <button id="new-upload-btn" type="button">Analyze Another</button>
+            </div>
 
         <div id="info-row">
             <div id="score-panel"></div>
@@ -174,40 +211,42 @@
                 <div id="histogram-chart"></div>
             </div>
         </div>
-        <div class="aspect-charts-row" style="display: flex; gap: 16px; margin-bottom: 16px;">
-            <div class="chart-wrapper" style="flex: 1 1 50%;">
+        <div class="aspect-charts-grid">
+            <div class="chart-wrapper aspect-chart-column">
                 <div class="chart-label">Slope by Aspect</div>
                 <div id="aspect-rose-chart"></div>
             </div>
-            <div class="chart-wrapper" style="flex: 1 1 50%;">
+            <div class="chart-wrapper aspect-chart-column">
                 <div class="chart-label">Fraction on Aspect</div>
                 <div id="aspect-dist-chart"></div>
             </div>
         </div>
 
-        <div id="acknowledgements" style="margin-top: 24px; padding: 14px 0 6px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 0.78em; color: #777; line-height: 1.45;">
-            <div style="margin-bottom: 3px;">
+        <div id="acknowledgements">
+            <div class="acknowledgements-paragraph">
+                <strong>USE AT YOUR OWN RISK.</strong> Winter travel involves inherent risks of injury and death. Skitur provides
+                automated terrain analysis provided "AS IS" and "WITH ALL FAULTS" without warranties of any kind,
+                including accuracy or fitness for a particular purpose. This report is for informational purposes
+                only and does not constitute professional advice. This report is not a substitute for official
+                forecasts, education, or field judgment.
+            </div>
+            <div class="acknowledgements-paragraph">
                 Many thanks to
-                <a href="https://www.python.org/" target="_blank" rel="noopener" style="color: #aaa;">Python</a>,
-                <a href="https://flask.palletsprojects.com/" target="_blank" rel="noopener" style="color: #aaa;">Flask</a>,
-                <a href="https://github.com/tkrajina/gpxpy" target="_blank" rel="noopener" style="color: #aaa;">gpxpy</a>,
-                <a href="https://numpy.org/" target="_blank" rel="noopener" style="color: #aaa;">NumPy</a>,
-                <a href="https://scipy.org/" target="_blank" rel="noopener" style="color: #aaa;">SciPy</a>,
-                <a href="https://contourpy.readthedocs.io/" target="_blank" rel="noopener" style="color: #aaa;">ContourPy</a>,
-                <a href="https://leafletjs.com/" target="_blank" rel="noopener" style="color: #aaa;">Leaflet</a>,
-                and <a href="https://plotly.com/javascript/" target="_blank" rel="noopener" style="color: #aaa;">Plotly.js</a>.
-                Elevation data from
-                <a href="https://www.usgs.gov/3d-elevation-program" target="_blank" rel="noopener" style="color: #aaa;">USGS 3DEP</a> (US)
-                and <a href="https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model" target="_blank" rel="noopener" style="color: #aaa;">Copernicus GLO-30</a> (global)
-                via <a href="https://github.com/ACCESS-Cloud-Based-InSAR/dem-stitcher" target="_blank" rel="noopener" style="color: #aaa;">dem-stitcher</a>,
+                <a class="acknowledgements-link" href="https://www.python.org/" target="_blank" rel="noopener">Python</a>,
+                <a class="acknowledgements-link" href="https://flask.palletsprojects.com/" target="_blank" rel="noopener">Flask</a>,
+                <a class="acknowledgements-link" href="https://github.com/tkrajina/gpxpy" target="_blank" rel="noopener">gpxpy</a>,
+                <a class="acknowledgements-link" href="https://numpy.org/" target="_blank" rel="noopener">NumPy</a>,
+                <a class="acknowledgements-link" href="https://scipy.org/" target="_blank" rel="noopener">SciPy</a>,
+                <a class="acknowledgements-link" href="https://contourpy.readthedocs.io/" target="_blank" rel="noopener">ContourPy</a>,
+                <a class="acknowledgements-link" href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a>,
+                and <a class="acknowledgements-link" href="https://plotly.com/javascript/" target="_blank" rel="noopener">Plotly.js</a>,
                 and all the other tools and contributors that made this possible.
+                Elevation data from
+                <a class="acknowledgements-link" href="https://www.usgs.gov/3d-elevation-program" target="_blank" rel="noopener">USGS 3DEP</a> (US)
+                and <a class="acknowledgements-link" href="https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model" target="_blank" rel="noopener">Copernicus GLO-30</a> (global)
+                via <a class="acknowledgements-link" href="https://github.com/ACCESS-Cloud-Based-InSAR/dem-stitcher" target="_blank" rel="noopener">dem-stitcher</a>.
             </div>
-            <div style="margin-top: 2px;">
-                The software is provided "as is", without warranty of any kind, express or implied,
-                including but not limited to warranties of merchantability, fitness for a particular purpose, and
-                noninfringement. This report is for informational purposes only and is not professional safety advice.
-            </div>
-            <div style="margin-top: 2px;">{{ copyright_notice }}</div>
+            <div class="acknowledgements-paragraph">Copyright (c) 2026 Skitur Team.</div>
         </div>
     </div>
 
@@ -398,7 +437,7 @@ function renderScore(score) {
     function bar(label, value) {
         const pct = Math.max(0, Math.min(value, 100));
         return `<div style="margin-bottom:6px;">
-            <div style="display:flex;justify-content:space-between;font-size:0.9em;">
+            <div class="score-subrow">
                 <span>${label}</span><span>${value.toFixed(0)}/100</span>
             </div>
             <div class="score-bar">
@@ -415,7 +454,7 @@ function renderScore(score) {
         ${score.avg_downhill_slope > 0 ? bar("Downhill fun", score.downhill_quality) : ""}
         ${score.avg_uphill_slope > 0 ? bar("Uphill doability", score.uphill_quality) : ""}
         ${bar("Avalanche exposure <a href='https://avtraining.org/' target='_blank' rel='noopener' style='color:#4a90d9;font-size:0.8em;text-decoration:underline;'>(Don't trust us!)</a>", score.avy_exposure)}
-        <div style="margin-top:8px;font-size:0.85em;color:#666;">
+        <div class="score-metrics">
             Avg downhill: ${score.avg_downhill_slope.toFixed(1)}&deg; &middot;
             Avg uphill: ${score.avg_uphill_slope.toFixed(1)}&deg; &middot;
             Track on 30-45&deg; ground: ${score.pct_avy_terrain.toFixed(1)}% &middot;
@@ -1585,12 +1624,14 @@ function renderAspectDist(data) {
             radialaxis: {
                 showline: false,
                 showticklabels: false, // keep rings, remove percent labels
+                ticks: "",
                 gridcolor: "rgba(0,0,0,0.15)",
                 angle: 45,
             },
             angularaxis: {
                 direction: "clockwise",
                 rotation: 90,
+                ticks: "",
                 tickvals: [0, 45, 90, 135, 180, 225, 270, 315],
                 ticktext: ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
                 tickfont: { size: 11, color: "#555" },
