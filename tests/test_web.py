@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from skitur.web import app, _compute_contours, _build_response
-from skitur.plot import compute_map_grids, CONTOUR_MINOR, CONTOUR_MAJOR
+from skitur.plot import compute_map_grids
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
 
@@ -174,6 +174,8 @@ def test_contour_structure(analysis_data):
     contours = analysis_data["contours"]
     assert "minor" in contours
     assert "major" in contours
+    assert "minor_step_ft" in contours
+    assert "major_step_ft" in contours
     assert len(contours["minor"]) > 0, "Should have minor contour lines"
     assert len(contours["major"]) > 0, "Should have major contour lines"
 
@@ -187,10 +189,15 @@ def test_contour_minor_are_coordinate_lists(analysis_data):
 
 def test_contour_major_have_levels(analysis_data):
     """Major contours include elevation level and coordinates."""
+    contours = analysis_data["contours"]
+    minor_step = int(contours["minor_step_ft"])
+    major_step = int(contours["major_step_ft"])
     item = analysis_data["contours"]["major"][0]
     assert "level" in item
     assert "coords" in item
-    assert item["level"] % CONTOUR_MAJOR == 0, f"Major level {item['level']} not divisible by {CONTOUR_MAJOR}"
+    assert minor_step in (10, 20, 40, 80)
+    assert major_step == minor_step * 5
+    assert item["level"] % major_step == 0, f"Major level {item['level']} not divisible by {major_step}"
 
 
 def test_contour_levels_are_reasonable(analysis_data):

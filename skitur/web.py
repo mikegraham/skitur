@@ -20,7 +20,7 @@ from skitur.gpx import load_track
 from skitur.analyze import analyze_track, TrackPoint
 from skitur.score import score_tour, TourScore
 from skitur.terrain import load_dem_for_bounds
-from skitur.plot import compute_map_grids, M_TO_FT, CONTOUR_MINOR, CONTOUR_MAJOR
+from skitur.plot import compute_map_grids, M_TO_FT, choose_contour_steps_ft
 from skitur.cli import compute_stats
 
 app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
@@ -80,16 +80,10 @@ def _compute_contours(grids: dict) -> dict:
 
     valid = elev_grid_ft[~np.isnan(elev_grid_ft)]
     if len(valid) == 0:
-        return {"minor": [], "major": []}
+        return {"minor": [], "major": [], "minor_step_ft": None, "major_step_ft": None}
 
-    # Adaptive contour spacing: widen when relief is large to avoid clutter
-    relief = float(valid.max() - valid.min())
-    if relief > 3000:
-        minor_step, major_step = 200, 1000
-    elif relief > 1500:
-        minor_step, major_step = 100, 500
-    else:
-        minor_step, major_step = CONTOUR_MINOR, CONTOUR_MAJOR
+    # Standard U.S. contour handling: 10/20/40/80 with index every 5th line.
+    minor_step, major_step = choose_contour_steps_ft(float(valid.min()), float(valid.max()))
 
     start = int(np.floor(valid.min() / minor_step) * minor_step)
     end = int(np.ceil(valid.max() / minor_step) * minor_step)
@@ -124,7 +118,12 @@ def _compute_contours(grids: dict) -> dict:
             else:
                 minor_lines.append(polyline)
 
-    return {"minor": minor_lines, "major": major_lines}
+    return {
+        "minor": minor_lines,
+        "major": major_lines,
+        "minor_step_ft": minor_step,
+        "major_step_ft": major_step,
+    }
 
 
 def _build_response(
@@ -187,19 +186,18 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, "TourScor
 
     lats = [p[0] for p in raw_points]
     lons = [p[1] for p in raw_points]
-    load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
+    lat_min_t, lat_max_t = min(lats), max(lats)
+    lon_min_t, lon_max_t = min(lons), max(lons)
 
-    points = analyze_track(raw_points)
-    stats = compute_stats(points)
-    score = score_tour(points)
-
-    pt_lats = [p.lat for p in points]
-    pt_lons = [p.lon for p in points]
-    mid_lat = (max(pt_lats) + min(pt_lats)) / 2
-    mid_lon = (max(pt_lons) + min(pt_lons)) / 2
+    # Pre-compute grid bounds so we can fetch the DEM ONCE for both track
+    # analysis and slope/contour grids. Without this, compute_map_grids
+    # triggers a second stitch_dem call (~2-3s) when the 1.5x grid extent
+    # exceeds the track's 0.02-degree padding.
+    mid_lat = (lat_max_t + lat_min_t) / 2
+    mid_lon = (lon_max_t + lon_min_t) / 2
     lon_scale = math.cos(math.radians(mid_lat))
-    lat_span = max(pt_lats) - min(pt_lats)
-    lon_span_scaled = (max(pt_lons) - min(pt_lons)) * lon_scale
+    lat_span = lat_max_t - lat_min_t
+    lon_span_scaled = (lon_max_t - lon_min_t) * lon_scale
     # Grid must cover the square map container at the default zoom level.
     # The viewport constraint (maxBounds + minZoom) prevents users from
     # seeing past the grid edges, so we only need enough margin for the
@@ -210,6 +208,20 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, "TourScor
     half_lon = (side / lon_scale) / 2
     grid_bounds = (mid_lat - half_lat, mid_lat + half_lat,
                    mid_lon - half_lon, mid_lon + half_lon)
+
+    # Single DEM fetch: union of track padding and grid extent.
+    # The 0.01 padding covers downstream callers (_sample_elevation_grid and
+    # analyze_track both call load_dem_for_bounds with default padding=0.01).
+    dem_lat_min = min(lat_min_t - 0.02, grid_bounds[0])
+    dem_lat_max = max(lat_max_t + 0.02, grid_bounds[1])
+    dem_lon_min = min(lon_min_t - 0.02, grid_bounds[2])
+    dem_lon_max = max(lon_max_t + 0.02, grid_bounds[3])
+    load_dem_for_bounds(dem_lat_min, dem_lat_max, dem_lon_min, dem_lon_max, padding=0.01)
+
+    points = analyze_track(raw_points)
+    stats = compute_stats(points)
+    score = score_tour(points)
+
     # Use a display grid resolution that matches the native DEM to avoid
     # downsampling moire. Downsampling a 925-cell DEM to 300 cells creates
     # aliased speckle patterns in the slope shading. By matching the native

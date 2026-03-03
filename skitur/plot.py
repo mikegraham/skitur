@@ -16,9 +16,30 @@ from skitur.geo import haversine_distance
 M_TO_FT = 3.28084
 KM_TO_MI = 0.621371
 
-# Contour intervals in feet
-CONTOUR_MINOR = 40   # thin lines
-CONTOUR_MAJOR = 200  # bold + labeled
+# Contour intervals in feet (U.S. topo conventions)
+CONTOUR_MINOR = 40   # default thin lines
+CONTOUR_MAJOR = 200  # default bold + labeled
+STANDARD_CONTOUR_MINORS_FT = (10, 20, 40, 80)
+
+
+def choose_contour_steps_ft(elev_ft_min: float, elev_ft_max: float) -> tuple[int, int]:
+    """Pick standard U.S. contour steps from relief.
+
+    Uses only standard minor intervals (10/20/40/80 ft) with an index contour
+    every 5th line.
+    """
+    relief = max(0.0, float(elev_ft_max) - float(elev_ft_min))
+    # Bias toward 40 ft, which is the most common interval in mountainous
+    # U.S. mapping. Use denser intervals only for clearly low-relief terrain.
+    if relief > 5000:
+        minor = 80
+    elif relief > 700:
+        minor = 40
+    elif relief > 250:
+        minor = 20
+    else:
+        minor = 10
+    return minor, minor * 5
 
 
 def _add_track_slope_colorbar(fig, ax, sm, shrink=0.5, pad=0.02):
@@ -204,13 +225,13 @@ def _make_track_cmap():
 
 
 def _make_contour_levels(elev_ft_min: float, elev_ft_max: float) -> tuple[list[int], list[int]]:
-    """Generate contour levels: every 40ft, with 200ft as major."""
-    # Round to nearest 40ft below/above
-    start = int(np.floor(elev_ft_min / CONTOUR_MINOR) * CONTOUR_MINOR)
-    end = int(np.ceil(elev_ft_max / CONTOUR_MINOR) * CONTOUR_MINOR)
+    """Generate contour levels using standard U.S. imperial intervals."""
+    minor_step, major_step = choose_contour_steps_ft(elev_ft_min, elev_ft_max)
+    start = int(np.floor(elev_ft_min / minor_step) * minor_step)
+    end = int(np.ceil(elev_ft_max / minor_step) * minor_step)
 
-    minor = list(range(start, end + 1, CONTOUR_MINOR))
-    major = [lvl for lvl in minor if lvl % CONTOUR_MAJOR == 0]
+    minor = list(range(start, end + 1, minor_step))
+    major = [lvl for lvl in minor if lvl % major_step == 0]
     return minor, major
 
 
