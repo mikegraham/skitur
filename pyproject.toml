@@ -5,17 +5,19 @@ description = "Analyze cross-country ski touring routes"
 requires-python = ">=3.10"
 dependencies = [
     "contourpy",
-    "flask",
-    "gpxpy",
-    "numpy",
-    "scipy",
-    "orjson",
     "dem-stitcher",
+    "flask",
+    "lxml",
+    "numpy",
+    "orjson",
     "rasterio",
+    "scipy",
 ]
 
 [project.optional-dependencies]
 dev = [
+    # Keep for parser parity tests only; runtime uses faster lxml-based parsing.
+    "gpxpy",
     "pytest",
     "pytest-cov",
     "pytest-ruff",
