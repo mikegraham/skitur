@@ -17,6 +17,20 @@ from skitur.stats import compute_stats
 from skitur.terrain import load_dem_for_bounds
 
 
+def _strip_upload_ui_for_static_report(template_html: str) -> str:
+    """Remove upload-only UI blocks from static report output."""
+    html = template_html
+
+    upload_start = html.find('<div id="upload-section">')
+    if upload_start != -1:
+        results_start = html.find('<div id="results-section">', upload_start)
+        if results_start != -1:
+            html = html[:upload_start] + html[results_start:]
+
+    html = html.replace('<button id="new-upload-btn" type="button">Analyze Another</button>', "")
+    return html
+
+
 def _compute_contours(grids: dict) -> dict:
     """Extract contour polylines from the elevation grid."""
     elev_grid_ft = grids["contour_elev_grid_ft"]
@@ -41,9 +55,10 @@ def _compute_contours(grids: dict) -> dict:
         lines = generator.lines(level)
         is_major = level % major_step == 0
         for line in lines:
-            coords = line[::3].tolist()
+            line_arr = np.asarray(line)
+            coords = line_arr[::3].tolist()
             if len(coords) < 2:
-                coords = line.tolist()
+                coords = line_arr.tolist()
             if len(coords) < 2:
                 continue
             polyline = [[pt[1], pt[0]] for pt in coords]
@@ -191,10 +206,20 @@ def build_embedded_report_html(
         "  trackData = data;",
     ]
     if hide_upload_section:
-        script_lines.append("  document.getElementById('upload-section').style.display = 'none';")
+        script_lines.extend(
+            [
+                "  const uploadSectionEl = document.getElementById('upload-section');",
+                "  if (uploadSectionEl) uploadSectionEl.style.display = 'none';",
+            ]
+        )
     script_lines.append(f"  renderResults(data, {filename_json});")
     if hide_new_upload_button:
-        script_lines.append("  document.getElementById('new-upload-btn').style.display = 'none';")
+        script_lines.extend(
+            [
+                "  const newUploadBtnEl = document.getElementById('new-upload-btn');",
+                "  if (newUploadBtnEl) newUploadBtnEl.style.display = 'none';",
+            ]
+        )
     script_lines.extend(["});", "</script>"])
 
     inject = "\n".join(script_lines) + "\n"
@@ -210,6 +235,7 @@ def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
 
     data = build_analysis_payload(gpx_path)
     template_html = (Path(__file__).parent / "templates" / "index.html").read_text()
+    template_html = _strip_upload_ui_for_static_report(template_html)
 
     filename = gpx_path.stem.replace("_", " ")
     html = build_embedded_report_html(

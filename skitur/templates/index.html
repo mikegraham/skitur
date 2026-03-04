@@ -372,43 +372,50 @@ let map = null;
 let hoverMarker = null;
 
 // ── Upload ─────────────────────────────────────────────────────────
-document.getElementById("upload-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const fileInput = document.getElementById("gpx-input");
-    if (!fileInput.files.length) return;
+const uploadForm = document.getElementById("upload-form");
+if (uploadForm) {
+    uploadForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const fileInput = document.getElementById("gpx-input");
+        if (!fileInput.files.length) return;
 
-    const formData = new FormData();
-    formData.append("gpx_file", fileInput.files[0]);
+        const formData = new FormData();
+        formData.append("gpx_file", fileInput.files[0]);
 
-    document.getElementById("loading").style.display = "block";
-    document.getElementById("error").style.display = "none";
-    document.getElementById("analyze-btn").disabled = true;
+        document.getElementById("loading").style.display = "block";
+        document.getElementById("error").style.display = "none";
+        document.getElementById("analyze-btn").disabled = true;
 
-    try {
-        const resp = await fetch("/api/analyze", { method: "POST", body: formData });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.error || "Analysis failed");
-        trackData = data;
-        renderResults(data, fileInput.files[0].name);
-    } catch (err) {
-        document.getElementById("error").textContent = err.message;
-        document.getElementById("error").style.display = "block";
-    } finally {
-        document.getElementById("loading").style.display = "none";
-        document.getElementById("analyze-btn").disabled = false;
-    }
-});
+        try {
+            const resp = await fetch("/api/analyze", { method: "POST", body: formData });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || "Analysis failed");
+            trackData = data;
+            renderResults(data, fileInput.files[0].name);
+        } catch (err) {
+            document.getElementById("error").textContent = err.message;
+            document.getElementById("error").style.display = "block";
+        } finally {
+            document.getElementById("loading").style.display = "none";
+            document.getElementById("analyze-btn").disabled = false;
+        }
+    });
+}
 
-document.getElementById("new-upload-btn").addEventListener("click", () => {
-    document.getElementById("results-section").style.display = "none";
-    document.getElementById("upload-section").style.display = "block";
-    document.getElementById("gpx-input").value = "";
-    trackData = null;
-});
+const newUploadBtn = document.getElementById("new-upload-btn");
+if (newUploadBtn) {
+    newUploadBtn.addEventListener("click", () => {
+        document.getElementById("results-section").style.display = "none";
+        document.getElementById("upload-section").style.display = "block";
+        document.getElementById("gpx-input").value = "";
+        trackData = null;
+    });
+}
 
 // ── Render Results ─────────────────────────────────────────────────
 function renderResults(data, filename) {
-    document.getElementById("upload-section").style.display = "none";
+    const uploadSection = document.getElementById("upload-section");
+    if (uploadSection) uploadSection.style.display = "none";
     document.getElementById("results-section").style.display = "block";
     document.getElementById("tour-name").textContent =
         filename.replace(".gpx", "").replace(/_/g, " ");
@@ -1347,7 +1354,7 @@ function renderTrackDistribution(track) {
 
     const layout = {
         xaxis: {
-            title: "Slope angle (deg)", range: [0, visibleMax], dtick: 5,
+            title: "Slope angle (degrees)", range: [0, visibleMax], dtick: 5,
             showgrid: true, gridcolor: "rgba(0,0,0,0.1)", gridwidth: 1,
         },
         yaxis: {
@@ -1406,7 +1413,7 @@ function renderGroundDistribution(track) {
 
     const xEnd = bins[bins.length - 1].mid + 2;
     const layout = {
-        xaxis: { title: "Ground slope angle (deg)", range: [0, xEnd], dtick: 1,
+        xaxis: { title: "Ground slope angle (degrees)", range: [0, xEnd], dtick: 1,
                  tickvals: Array.from({length: Math.ceil(xEnd)}, (_, i) => i),
                  ticktext: Array.from({length: Math.ceil(xEnd)}, (_, i) => i % 5 === 0 ? String(i) : ""),
                  ticklen: 3,
