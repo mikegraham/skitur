@@ -13,48 +13,100 @@ from skitur.analyze import TrackPoint
 from skitur.geo import METERS_PER_DEG_LAT
 from skitur.terrain import get_elevation, get_elevations, get_ground_slope, get_ground_slopes
 
-# Avalanche terrain characteristics
-# Most avalanches release on slopes around 38-39 degrees
-AVY_SLOPE_PEAK = 38.5       # Most dangerous slope angle (degrees)
-AVY_SLOPE_STDDEV = 6.0      # Spread of danger curve
-AVY_SLOPE_MIN = 25.0        # Below this, negligible slide danger
-AVY_SLOPE_MAX = 55.0        # Above this, snow won't accumulate
+# Standing avalanche terrain range (ground slope, degrees)
+STANDING_AVY_MIN_DEG = 30.0
+STANDING_AVY_MAX_DEG = 45.0
+
+# Avalanche slope-penalty model:
+# https://avalanche.org/avalanche-encyclopedia/terrain/slope-characteristics/slope-angle/
+# The page summarizes that 96% of slab avalanches released on 30-50 deg slopes,
+# with most releases on 34-45 deg slopes. We model this as a full penalty
+# band across 30-45 deg with a 4 deg linear taper to zero on either side.
+# The 4-degree taper reflects DEM slope uncertainty: Haneberg (2006) reports
+# typical slope-angle standard deviations of about +/-3 deg to +/-4 deg for 10 m DEMs.
+# DOI: https://doi.org/10.2113/gseegeosci.12.3.247
+AVY_TAPER_DEG = 4.0
+AVY_CORE_PENALTY = 1.0
+AVY_SLOPE_MIN = STANDING_AVY_MIN_DEG - AVY_TAPER_DEG  # 26 deg
+AVY_SLOPE_MAX = STANDING_AVY_MAX_DEG + AVY_TAPER_DEG  # 49 deg
+AVY_PENALTY_X = (AVY_SLOPE_MIN, STANDING_AVY_MIN_DEG, STANDING_AVY_MAX_DEG, AVY_SLOPE_MAX)
+AVY_PENALTY_Y = (0.0, AVY_CORE_PENALTY, AVY_CORE_PENALTY, 0.0)
 
 # Runout exposure tracing
 AVY_TRACE_STEP_M = 30.0     # Step size when tracing uphill (meters)
 AVY_TRACE_MAX_M = 500.0     # Maximum distance to trace uphill
 
+# Avalanche exposure blend weights
+AVY_STANDING_WEIGHT = 1.5
+AVY_RUNOUT_WEIGHT = 0.5
 
-def _gaussian_pdf(x: float, mu: float, sigma: float) -> float:
-    """Gaussian probability density function."""
-    return math.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * math.sqrt(2 * math.pi))
+# Final score blend weights
+DOWNHILL_WEIGHT = 0.45
+UPHILL_WEIGHT = 0.25
+AVY_WEIGHT = 0.30
+
+GROUND_SLOPE_PENALTY_X = (0.0, 20.0, 40.0)
+GROUND_SLOPE_PENALTY_Y = (1.0, 1.0, 0.25)
+
+DOWNHILL_SCORE_X = (0.0, 3.0, 6.0, 8.0, 12.0, 18.0, 21.0)
+DOWNHILL_SCORE_Y = (70.0, 100.0, 115.0, 115.0, 90.0, 40.0, -20.0)
+
+UPHILL_SCORE_X = (7.0, 30.0)
+UPHILL_SCORE_Y = (100.0, -30.0)
+
+
+def _interp_piecewise(
+    x: float,
+    xs: tuple[float, ...],
+    ys: tuple[float, ...],
+) -> float:
+    x_clamped = min(max(x, xs[0]), xs[-1])
+    return float(np.interp(x_clamped, xs, ys))
+
+
+def _interp_piecewise_array(
+    x: np.ndarray,
+    xs: tuple[float, ...],
+    ys: tuple[float, ...],
+) -> np.ndarray:
+    x_clipped = np.clip(x, xs[0], xs[-1])
+    return np.asarray(np.interp(x_clipped, xs, ys), dtype=float)
+
+
+def _avy_slope_penalty(slope: float) -> float:
+    """0-1 avalanche penalty for a slope angle."""
+    return _interp_piecewise(
+        slope,
+        AVY_PENALTY_X,
+        AVY_PENALTY_Y,
+    )
+
+
+def _avy_slope_penalties(slopes: np.ndarray) -> np.ndarray:
+    """Vectorized 0-1 avalanche penalty for an array of slope angles."""
+    penalties = _interp_piecewise_array(
+        slopes,
+        AVY_PENALTY_X,
+        AVY_PENALTY_Y,
+    )
+    return np.clip(penalties, 0.0, 1.0)
 
 
 def _avy_slope_danger(slope: float) -> float:
-    """0-1 danger score for a slope angle, peaks at AVY_SLOPE_PEAK."""
-    if slope < AVY_SLOPE_MIN or slope > AVY_SLOPE_MAX:
-        return 0.0
-    # Normalize so peak = 1.0
-    peak_val = _gaussian_pdf(AVY_SLOPE_PEAK, AVY_SLOPE_PEAK, AVY_SLOPE_STDDEV)
-    return _gaussian_pdf(slope, AVY_SLOPE_PEAK, AVY_SLOPE_STDDEV) / peak_val
+    """Backward-compatible alias for _avy_slope_penalty."""
+    return _avy_slope_penalty(slope)
 
 
 def _avy_slope_dangers(slopes: np.ndarray) -> np.ndarray:
-    """Vectorized 0-1 danger score for an array of slope angles."""
-    peak_val = _gaussian_pdf(AVY_SLOPE_PEAK, AVY_SLOPE_PEAK, AVY_SLOPE_STDDEV)
-    danger = np.exp(-0.5 * ((slopes - AVY_SLOPE_PEAK) / AVY_SLOPE_STDDEV) ** 2) / (
-        AVY_SLOPE_STDDEV * math.sqrt(2 * math.pi) * peak_val
-    )
-    # Zero outside [AVY_SLOPE_MIN, AVY_SLOPE_MAX]
-    danger[(slopes < AVY_SLOPE_MIN) | (slopes > AVY_SLOPE_MAX)] = 0.0
-    return danger
+    """Backward-compatible alias for _avy_slope_penalties."""
+    return _avy_slope_penalties(slopes)
 
 
 def _compute_runout_exposure(lat: float, lon: float) -> float:
     """Compute avalanche exposure from terrain above (0-1 scale).
 
     Traces uphill in the fall line direction until hitting a ridge,
-    accumulating danger from any avalanche terrain above.
+    accumulating penalty from any avalanche terrain above.
     """
     exposure = 0.0
     curr_lat, curr_lon = lat, lon
@@ -94,12 +146,12 @@ def _compute_runout_exposure(lat: float, lon: float) -> float:
         curr_lat, curr_lon = best_lat, best_lon
         distance_traced += AVY_TRACE_STEP_M
 
-        # Check slope danger at this position
+        # Check slope penalty at this position
         slope = get_ground_slope(curr_lat, curr_lon)
         if slope is not None:
-            # Weight by distance (closer terrain is more dangerous)
+            # Weight by distance (closer terrain is more consequential)
             distance_factor = 1.0 - (distance_traced / AVY_TRACE_MAX_M)
-            exposure += _avy_slope_danger(slope) * distance_factor * 0.2
+            exposure += _avy_slope_penalty(slope) * distance_factor * 0.2
 
         prev_elev = best_elev
 
@@ -109,7 +161,7 @@ def _compute_runout_exposure(lat: float, lon: float) -> float:
 # Per-point loop version (_compute_runout_exposure above) does ~900k scalar
 # numpy searchsorted calls (~12s on 10k points). This batched version processes
 # all points at each trace step with one get_elevations() call (~16 total),
-# bringing it to ~0.1s. Only 8% of the final score — safe to delete if it's
+# bringing it to ~0.1s. Only 8% of the final score - safe to delete if it's
 # not worth the code.
 def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
     """Vectorized runout exposure for all points simultaneously."""
@@ -149,7 +201,7 @@ def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
         a_prev = prev_elevs[idx]
         na = len(idx)
 
-        # Build neighbor coordinates for all active points × 8 directions
+        # Build neighbor coordinates for all active points x 8 directions
         # Shape: (8, na)
         nb_lats = a_lats[np.newaxis, :] + dlat_signs[:, np.newaxis] * step_deg_lat
         nb_lons = a_lons[np.newaxis, :] + dlon_signs[:, np.newaxis] * step_deg_lon
@@ -184,14 +236,14 @@ def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
 
         distance_traced += AVY_TRACE_STEP_M
 
-        # Compute slope danger at new positions
+        # Compute slope penalties at new positions
         slopes = get_ground_slopes(curr_lats[up_idx], curr_lons[up_idx])
-        dangers = _avy_slope_dangers(slopes)
-        # NaN slopes → zero danger
-        dangers[np.isnan(slopes)] = 0.0
+        penalties = _avy_slope_penalties(slopes)
+        # NaN slopes -> zero penalty
+        penalties[np.isnan(slopes)] = 0.0
 
         distance_factor = 1.0 - (distance_traced / AVY_TRACE_MAX_M)
-        exposure[up_idx] += dangers * distance_factor * 0.2
+        exposure[up_idx] += penalties * distance_factor * 0.2
 
     return np.minimum(exposure, 1.0)
 
@@ -201,14 +253,14 @@ class TourScore:
     """Tour quality score with breakdown."""
     total: float  # 0-100, clamped (higher is better)
 
-    # Component scores — can exceed 100 (bonus) or go negative (terrible)
+    # Component scores - can exceed 100 (bonus) or go negative (terrible)
     downhill_quality: float  # how fun are the descents
     uphill_quality: float    # how reasonable are the climbs
     avy_exposure: float      # lower exposure is better (inverted for scoring)
 
     # Raw stats for context
     pct_avy_terrain: float   # % of track on 30-45 degree ground (standing)
-    pct_runout_exposed: float  # avg runout danger (0-100, higher = more exposed)
+    pct_runout_exposed: float  # avg runout penalty (0-100, higher = more exposed)
     avg_downhill_slope: float
     avg_uphill_slope: float
 
@@ -226,40 +278,36 @@ def score_tour(points: list[TrackPoint]) -> TourScore:
     if len(points) < 2:
         return TourScore(0, 0, 0, 0, 0, 0, 0, 0)
 
-    uphill_slopes = []
-    downhill_slopes = []
-    uphill_scores = []
-    downhill_scores = []
-
-    avy_standing_danger = []  # danger from terrain you're standing on
+    uphill_slopes: list[float] = []
+    downhill_slopes: list[float] = []
+    uphill_scores: list[float] = []
+    downhill_scores: list[float] = []
 
     for p in points:
         if p.track_slope is not None:
             gp = _ground_slope_penalty(p.ground_slope)
-            if p.track_slope > 0.5:  # uphill
+            if p.track_slope > 0.0:  # uphill
                 slope = p.track_slope
                 uphill_slopes.append(slope)
-                uphill_scores.append(_uphill_segment_score(slope) * gp)
-            elif p.track_slope < -0.5:  # downhill
+                raw_score = _uphill_segment_score(slope)
+                uphill_scores.append(_apply_ground_slope_multiplier(raw_score, gp))
+            elif p.track_slope < 0.0:  # downhill
                 slope = abs(p.track_slope)
                 downhill_slopes.append(slope)
-                downhill_scores.append(_downhill_segment_score(slope) * gp)
-
-        # Avalanche standing danger
-        if p.ground_slope is not None:
-            avy_standing_danger.append(_avy_slope_danger(p.ground_slope))
+                raw_score = _downhill_segment_score(slope)
+                downhill_scores.append(_apply_ground_slope_multiplier(raw_score, gp))
 
     # Vectorized runout exposure: collect all points with ground slope
     avy_indices = [i for i, p in enumerate(points) if p.ground_slope is not None]
     if avy_indices:
         avy_lats = np.array([points[i].lat for i in avy_indices])
         avy_lons = np.array([points[i].lon for i in avy_indices])
-        avy_runout_danger = _compute_runout_exposures(avy_lats, avy_lons).tolist()
+        avy_runout_penalty = _compute_runout_exposures(avy_lats, avy_lons).tolist()
     else:
-        avy_runout_danger = []
+        avy_runout_penalty = []
 
     # === Downhill quality ===
-    # Unclamped average — negative scores for terrible segments naturally
+    # Unclamped average - negative scores for terrible segments naturally
     # drag the average down without needing a separate penalty.
     if downhill_scores:
         downhill_quality = sum(downhill_scores) / len(downhill_scores)
@@ -271,39 +319,39 @@ def score_tour(points: list[TrackPoint]) -> TourScore:
     if uphill_scores:
         uphill_quality = sum(uphill_scores) / len(uphill_scores)
     else:
-        # No uphill at all — neutral, not a flaw
+        # No uphill at all - neutral, not a flaw
         uphill_quality = 50.0
 
     # === Avy exposure (0-100, higher = safer) ===
-    # What % of track is exposed to avalanche danger?
-    # Two types: standing ON avy terrain (30-45°), or UNDER it (runout).
-    # These overlap — being on avy terrain is already max danger.
+    # What % of track is exposed to avalanche penalties?
+    # Two types: standing ON avy terrain (30-45 deg), or UNDER it (runout).
+    # These overlap -- being on avy terrain is already max penalty.
     # We want: pct_exposed = pct_on_avy + pct_under_avy_but_not_on_it
     total_ground = sum(1 for p in points if p.ground_slope is not None)
 
     if total_ground > 0 and avy_indices:
-        # Per-point standing danger: 1 if on 30-45° ground, 0 otherwise
+        # Per-point standing penalty: 1 if on 30-45 deg ground, 0 otherwise
         standing_flags = np.zeros(len(avy_indices))
         for k, idx in enumerate(avy_indices):
             gs = points[idx].ground_slope
-            if gs is not None and 30 <= gs <= 45:
+            if gs is not None and STANDING_AVY_MIN_DEG <= gs <= STANDING_AVY_MAX_DEG:
                 standing_flags[k] = 1.0
 
-        pct_avy = np.sum(standing_flags) / total_ground * 100
+        pct_avy = float(np.sum(standing_flags) / total_ground * 100)
 
-        # Per-point runout danger (0-1 scale, from uphill tracing)
-        runout_arr = np.array(avy_runout_danger)
+        # Per-point runout penalty (0-1 scale, from uphill tracing)
+        runout_arr = np.array(avy_runout_penalty)
         # Only count runout for points NOT already on avy terrain
         not_on_avy = standing_flags == 0
         if np.any(not_on_avy):
-            pct_runout = np.mean(runout_arr[not_on_avy]) * 100
+            pct_runout = float(np.mean(runout_arr[not_on_avy]) * 100)
         else:
             pct_runout = 0.0
 
         # Total exposed = on avy terrain + under avy terrain (non-overlapping)
         # 1.5x multiplier: being on avy terrain is worse than just exposure
-        total_danger_pct = pct_avy * 1.5 + pct_runout * 0.5
-        avy_exposure = max(0, 100 - total_danger_pct)
+        total_penalty_pct = pct_avy * AVY_STANDING_WEIGHT + pct_runout * AVY_RUNOUT_WEIGHT
+        avy_exposure = max(0, 100 - total_penalty_pct)
     else:
         avy_exposure = 100.0
         pct_avy = 0.0
@@ -311,9 +359,9 @@ def score_tour(points: list[TrackPoint]) -> TourScore:
 
     # === Total score (clamped 0-100) ===
     total = max(0, min(100,
-        downhill_quality * 0.47 +  # Fun descents matter most
-        uphill_quality * 0.29 +
-        avy_exposure * 0.24
+        downhill_quality * DOWNHILL_WEIGHT +
+        uphill_quality * UPHILL_WEIGHT +
+        avy_exposure * AVY_WEIGHT
     ))
 
     return TourScore(
@@ -335,80 +383,56 @@ def _ground_slope_penalty(ground_slope: float | None) -> float:
     is uncomfortable and exposed. Skiing a 28-degree slope with lots of
     sidehill still sucks.
     """
-    if ground_slope is None or ground_slope < 20:
+    if ground_slope is None:
         return 1.0
-    elif ground_slope <= 30:
-        # Noticeable penalty: 1.0 → 0.7
-        return 1.0 - (ground_slope - 20) * 0.03
-    elif ground_slope <= 40:
-        # Significant penalty: 0.7 → 0.3
-        return 0.7 - (ground_slope - 30) * 0.04
-    else:
-        # Extreme terrain: 0.3 → 0.1
-        return max(0.1, 0.3 - (ground_slope - 40) * 0.02)
+    return _interp_piecewise(
+        ground_slope,
+        GROUND_SLOPE_PENALTY_X,
+        GROUND_SLOPE_PENALTY_Y,
+    )
+
+
+def _apply_ground_slope_multiplier(segment_score: float, multiplier: float) -> float:
+    """Apply ground-steepness multiplier without softening negative scores.
+
+    Positive scores are reduced by the multiplier. Negative scores are left as-is
+    so steep ground cannot make a bad segment look better.
+    """
+    if segment_score >= 0:
+        return segment_score * multiplier
+    return segment_score
 
 
 def _downhill_segment_score(slope: float) -> float:
     """Score a single downhill segment for XC skiing.
 
-    Can exceed 100 (bonus for sweet spot) or go negative (impossible).
-    Wide sweet spot: 5-13 deg is prime XC fun zone, peaks at 8 deg.
-    Generous toward gentle slopes — a 4° glide is still good XC skiing.
-    - <2 deg: gentle glide, decent
-    - 2-5 deg: getting fun, ramps quickly
-    - 5-8 deg: entering sweet spot
-    - 8-13 deg: sweet spot plateau (peak 105 at 8 deg)
-    - 13-18 deg: getting scary fast
-    - 18-22 deg: barely skiable on XC gear
-    - 22-25 deg: not XC skiable, negative
-    - >25 deg: impossible, hard negative
+    Piecewise-linear anchors:
+    - 0 deg -> 70
+    - 3 deg -> 100
+    - 6 deg -> 115
+    - 8 deg -> 115
+    - 12 deg -> 90
+    - 18 deg -> 40
+    - 21 deg -> -20
+    - >=21 deg -> -20
     """
-    if slope < 2:
-        return 55 + slope * 10               # 55→75
-    elif slope <= 5:
-        return 75 + (slope - 2) * (25 / 3)   # 75→100
-    elif slope <= 8:
-        return 100 + (slope - 5) * (5 / 3)   # 100→105
-    elif slope <= 13:
-        return 105 - (slope - 8) * 3          # 105→90
-    elif slope <= 18:
-        return 90 - (slope - 13) * 18         # 90→0
-    elif slope <= 22:
-        return -(slope - 18) * 7.5            # 0→-30
-    elif slope <= 25:
-        return -30 - (slope - 22) * (20 / 3)  # -30→-50
-    else:
-        return -50
+    return _interp_piecewise(
+        slope,
+        DOWNHILL_SCORE_X,
+        DOWNHILL_SCORE_Y,
+    )
 
 
 def _uphill_segment_score(slope: float) -> float:
     """Score a single uphill segment for XC ski touring.
 
-    Can exceed 100 (bonus for ideal grades) or go negative (bootpack).
-    Skin track reference: 8-12 deg efficient, 12-15 common, 15-18
-    workable, 18-20 near max, >20 bootpack.
-    - <2 deg: easy but slow
-    - 2-5 deg: ideal skin track grade
-    - 5-8 deg: still very good
-    - 8-12 deg: efficient all-day touring
-    - 12-15 deg: common steep approaches
-    - 15-18 deg: steep but workable
-    - 18-22 deg: near max for straight skinning
-    - >22 deg: bootpack territory, hard negative
+    Piecewise-linear with clamped ends:
+    - <=7 deg: 100
+    - 7..30 deg: linear decay to -30
+    - >=30 deg: -30
     """
-    if slope < 2:
-        return 80 + slope * 7.5              # 80→95
-    elif slope <= 5:
-        return 95 + (slope - 2) * (10 / 3)   # 95→105
-    elif slope <= 8:
-        return 105 - (slope - 5) * 5          # 105→90
-    elif slope <= 12:
-        return 90 - (slope - 8) * 10          # 90→50
-    elif slope <= 15:
-        return 50 - (slope - 12) * (50 / 3)   # 50→0
-    elif slope <= 20:
-        return -(slope - 15) * 6              # 0→-30
-    elif slope <= 25:
-        return -30 - (slope - 20) * 4         # -30→-50
-    else:
-        return -50
+    return _interp_piecewise(
+        slope,
+        UPHILL_SCORE_X,
+        UPHILL_SCORE_Y,
+    )

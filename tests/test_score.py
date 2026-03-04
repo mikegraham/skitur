@@ -5,6 +5,8 @@ Tests verify both exact breakpoint values and the shape of scoring curves.
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from skitur.score import (
     _downhill_segment_score,
@@ -17,6 +19,15 @@ from skitur.score import (
     score_tour,
 )
 from skitur.analyze import TrackPoint
+from skitur.terrain import load_dem_for_bounds
+
+pytestmark = pytest.mark.enable_socket
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _load_dem_once():
+    """Ensure DEM is loaded for runout-exposure and score_tour integration tests."""
+    load_dem_for_bounds(44.9, 45.5, -121.9, -121.4, padding=0.02)
 
 
 def _make_point(lat=45.0, lon=-121.0, elevation=2000, distance=0,
@@ -32,39 +43,39 @@ def _make_point(lat=45.0, lon=-121.0, elevation=2000, distance=0,
 # -- Downhill scoring: exact breakpoints --
 
 def test_downhill_sweet_spot():
-    """8 degrees is the peak of downhill fun."""
-    assert _downhill_segment_score(8) == 105
+    """6-8 degrees is the peak plateau of downhill fun."""
+    assert _downhill_segment_score(8) == 115
 
 
 def test_downhill_breakpoint_values():
     """Verify exact scores at each piecewise boundary."""
-    assert _downhill_segment_score(0) == 55
-    assert _downhill_segment_score(2) == 75
-    assert _downhill_segment_score(5) == 100
-    assert _downhill_segment_score(8) == 105
-    assert _downhill_segment_score(13) == 90
-    assert _downhill_segment_score(18) == 0
-    assert _downhill_segment_score(22) == -30
-    assert _downhill_segment_score(25) == -50
+    assert _downhill_segment_score(0) == 70
+    assert _downhill_segment_score(3) == 100
+    assert _downhill_segment_score(6) == 115
+    assert _downhill_segment_score(8) == 115
+    assert _downhill_segment_score(12) == 90
+    assert _downhill_segment_score(18) == 40
+    assert _downhill_segment_score(21) == -20
+    assert _downhill_segment_score(25) == -20
 
 
 def test_downhill_flat_is_boring():
-    """Flat terrain scores 55-75, decent but not exciting."""
-    assert _downhill_segment_score(0) == 55
-    assert _downhill_segment_score(1) == 65
-    assert _downhill_segment_score(2) == 75
+    """Flat terrain gets some credit, but not the peak."""
+    assert _downhill_segment_score(0) == 70
+    assert _downhill_segment_score(1) == 80
+    assert _downhill_segment_score(2) == 90
 
 
 def test_downhill_steep_goes_negative():
-    """Slopes beyond 22 degrees go negative — not XC skiable."""
-    assert _downhill_segment_score(22) == -30
-    assert _downhill_segment_score(25) == -50
-    assert _downhill_segment_score(30) == -50
-    assert _downhill_segment_score(40) == -50
+    """Slopes beyond 21 degrees floor at a negative score."""
+    assert _downhill_segment_score(21) == -20
+    assert _downhill_segment_score(25) == -20
+    assert _downhill_segment_score(30) == -20
+    assert _downhill_segment_score(40) == -20
 
 
 def test_downhill_monotonic_increase_to_peak():
-    scores = [_downhill_segment_score(s) for s in range(0, 9)]
+    scores = [_downhill_segment_score(s) for s in range(0, 7)]
     for i in range(1, len(scores)):
         assert scores[i] >= scores[i - 1]
 
@@ -83,38 +94,37 @@ def test_downhill_sweet_spot_is_wide():
 
 def test_downhill_12_degrees_still_great():
     """12 degrees is still in the sweet spot."""
-    assert _downhill_segment_score(12) == pytest.approx(93)
+    assert _downhill_segment_score(12) == pytest.approx(90)
 
 
 # -- Uphill scoring: exact breakpoints --
 
 def test_uphill_sweet_spot():
-    """5 degrees is the peak for uphill skinning."""
-    assert _uphill_segment_score(5) == 105
+    """At or below 7 degrees is pinned at the uphill peak."""
+    assert _uphill_segment_score(5) == 100
 
 
 def test_uphill_breakpoint_values():
     """Verify exact scores at each piecewise boundary."""
-    assert _uphill_segment_score(0) == 80
-    assert _uphill_segment_score(2) == 95
-    assert _uphill_segment_score(5) == 105
-    assert _uphill_segment_score(8) == 90
-    assert _uphill_segment_score(12) == 50
-    assert _uphill_segment_score(15) == 0
-    assert _uphill_segment_score(20) == -30
-    assert _uphill_segment_score(25) == -50
+    assert _uphill_segment_score(0) == 100
+    assert _uphill_segment_score(2) == 100
+    assert _uphill_segment_score(7) == 100
+    assert _uphill_segment_score(8) == pytest.approx(94.34782608695652)
+    assert _uphill_segment_score(12) == pytest.approx(71.73913043478261)
+    assert _uphill_segment_score(15) == pytest.approx(54.78260869565217)
+    assert _uphill_segment_score(20) == pytest.approx(26.52173913043478)
+    assert _uphill_segment_score(30) == -30
 
 
 def test_uphill_steep_goes_negative():
-    """Slopes beyond 15 degrees go negative — bootpack territory."""
-    assert _uphill_segment_score(15) == 0
-    assert _uphill_segment_score(16) == pytest.approx(-6)
-    assert _uphill_segment_score(20) == -30
-    assert _uphill_segment_score(25) == -50
+    """Very steep uphill eventually goes negative, then floors."""
+    assert _uphill_segment_score(25) < 0
+    assert _uphill_segment_score(30) == -30
+    assert _uphill_segment_score(35) == -30
 
 
 def test_uphill_monotonic_decrease_from_peak():
-    scores = [_uphill_segment_score(s) for s in range(5, 26)]
+    scores = [_uphill_segment_score(s) for s in range(7, 31)]
     for i in range(1, len(scores)):
         assert scores[i] <= scores[i - 1]
 
@@ -127,7 +137,7 @@ def test_uphill_sweet_spot_is_wide():
 
 def test_uphill_8_degrees_is_good():
     """8 degrees is efficient all-day touring grade."""
-    assert _uphill_segment_score(8) == 90
+    assert _uphill_segment_score(8) == pytest.approx(94.34782608695652)
 
 
 # -- Ground slope penalty --
@@ -142,42 +152,43 @@ def test_ground_slope_penalty_flat():
 def test_ground_slope_penalty_steep():
     """Steep terrain reduces scores."""
     assert _ground_slope_penalty(20) == 1.0
-    assert _ground_slope_penalty(25) == pytest.approx(0.85)
-    assert _ground_slope_penalty(30) == pytest.approx(0.7)
-    assert _ground_slope_penalty(40) == pytest.approx(0.3)
+    assert _ground_slope_penalty(25) == pytest.approx(0.8125)
+    assert _ground_slope_penalty(30) == pytest.approx(0.625)
+    assert _ground_slope_penalty(40) == pytest.approx(0.25)
 
 
 def test_ground_slope_penalty_extreme():
-    """Extreme terrain has heavy penalty, floors at 0.1."""
-    assert _ground_slope_penalty(50) == pytest.approx(0.1)
-    assert _ground_slope_penalty(60) == 0.1  # floors at 0.1
+    """Extreme terrain floors at 0.25."""
+    assert _ground_slope_penalty(50) == pytest.approx(0.25)
+    assert _ground_slope_penalty(60) == 0.25
 
 
 def test_ground_slope_penalty_28_is_noticeable():
     """The user's example: 28 degree ground should have a clear penalty."""
     penalty = _ground_slope_penalty(28)
-    assert 0.7 < penalty < 0.85  # noticeable but not devastating
+    assert 0.65 <= penalty <= 0.85
 
 
 # -- Avalanche danger --
 
-def test_avy_danger_peaks_near_38():
-    peak = _avy_slope_danger(38.5)
-    assert peak == pytest.approx(1.0)
-    assert _avy_slope_danger(20) < 0.1
-    assert _avy_slope_danger(50) < peak
+def test_avy_danger_full_penalty_band_and_tapers():
+    assert _avy_slope_danger(30) == pytest.approx(1.0)
+    assert _avy_slope_danger(38.5) == pytest.approx(1.0)
+    assert _avy_slope_danger(45) == pytest.approx(1.0)
+    assert _avy_slope_danger(28) == pytest.approx(0.5)
+    assert _avy_slope_danger(47) == pytest.approx(0.5)
 
 
 def test_avy_danger_zero_outside_range():
     assert _avy_slope_danger(10) == 0.0
+    assert _avy_slope_danger(25) == 0.0
+    assert _avy_slope_danger(50) == 0.0
     assert _avy_slope_danger(60) == 0.0
 
 
-def test_avy_danger_symmetric_around_peak():
-    """Danger should be roughly symmetric around 38.5 degrees."""
-    d_30 = _avy_slope_danger(30)
-    d_47 = _avy_slope_danger(47)
-    assert abs(d_30 - d_47) < 0.05
+def test_avy_danger_symmetric_tapers():
+    """Penalty taper should be symmetric around the core band edges."""
+    assert _avy_slope_danger(28) == pytest.approx(_avy_slope_danger(47), abs=1e-6)
 
 
 # -- Integration: score_tour --
@@ -198,7 +209,7 @@ def test_score_tour_downhill_only():
         _make_point(distance=1000, track_slope=-8, ground_slope=10),
     ]
     score = score_tour(points)
-    assert score.downhill_quality == 105  # sweet spot peak
+    assert score.downhill_quality == 115  # sweet spot peak
     assert score.uphill_quality == 50     # no uphill = neutral
     assert score.avg_uphill_slope == 0
     assert score.avg_downhill_slope == 8
@@ -227,7 +238,7 @@ def test_score_tour_mixed():
         _make_point(distance=2000, track_slope=-7, elevation=1000),
     ]
     score = score_tour(points)
-    assert score.uphill_quality > 100  # sweet spot bonus
+    assert score.uphill_quality == 100
     assert score.downhill_quality > 100  # sweet spot bonus
 
 
@@ -255,7 +266,7 @@ def test_sweet_spot_downhill_beats_steep():
         _make_point(distance=1000, track_slope=-25),
     ]
     assert score_tour(sweet).downhill_quality > 100
-    assert score_tour(steep).downhill_quality == -50
+    assert score_tour(steep).downhill_quality == -20
 
 
 def test_sweet_spot_downhill_beats_flat():
@@ -271,7 +282,7 @@ def test_sweet_spot_downhill_beats_flat():
         _make_point(distance=1000, track_slope=-1),
     ]
     assert score_tour(sweet).downhill_quality > 100
-    assert score_tour(flat).downhill_quality == 65  # 1 deg = 55+10 = 65
+    assert score_tour(flat).downhill_quality == 80
 
 
 def test_scary_descent_scores_negative():
@@ -287,14 +298,14 @@ def test_scary_descent_scores_negative():
 
 
 def test_brutal_uphill_scores_negative():
-    """Very steep uphill (18 deg) should score negative."""
+    """Very steep uphill (18 deg) should score much worse than mellow."""
     points = [
         _make_point(distance=0, track_slope=None),
         _make_point(distance=500, track_slope=18),
         _make_point(distance=1000, track_slope=18),
     ]
     score = score_tour(points)
-    assert score.uphill_quality < 0
+    assert score.uphill_quality < 60
 
 
 def test_mixed_descent_worse_than_pure_sweet_spot():
@@ -385,9 +396,9 @@ def test_total_score_is_weighted_sum():
     ]
     score = score_tour(points)
     raw = (
-        score.downhill_quality * 0.47 +
-        score.uphill_quality * 0.29 +
-        score.avy_exposure * 0.24
+        score.downhill_quality * 0.45 +
+        score.uphill_quality * 0.25 +
+        score.avy_exposure * 0.30
     )
     expected_total = max(0, min(100, raw))
     assert score.total == pytest.approx(expected_total, abs=0.01)
@@ -429,20 +440,18 @@ def _make_tour(segments, ground_slope=10):
 def test_lake_crossing_flat_traverse():
     """Long flat crossing (like skiing across a frozen lake or meadow).
 
-    Slopes below 0.5° aren't classified as uphill or downhill.
-    A truly flat traverse gets 0 DH (nothing to score) and neutral UH.
-    A slightly tilted traverse (1.5°) does get scored — boring but not bad.
+    Even shallow slopes are now classified by sign only.
     """
-    # 0.3° is below the 0.5° threshold — nothing classified
+    # 0.3° is still counted as downhill (small but non-zero credit)
     dead_flat = _make_tour([(-0.3, 20)], ground_slope=2)
     score_flat = score_tour(dead_flat)
-    assert score_flat.downhill_quality == 0  # no segments classified
+    assert score_flat.downhill_quality > 70
     assert score_flat.uphill_quality == 50   # neutral
 
-    # 1.5° is above the threshold — classified but boring
+    # 1.5° is still gentle, but now receives moderate downhill credit.
     slight_tilt = _make_tour([(-1.5, 20)], ground_slope=2)
     score_tilt = score_tour(slight_tilt)
-    assert 55 < score_tilt.downhill_quality < 75  # boring but fine
+    assert 80 < score_tilt.downhill_quality < 90
     assert score_tilt.total > 30
 
 
@@ -461,7 +470,7 @@ def test_switchbacks_on_steep_face():
     gentle_score = score_tour(gentle_bowl).uphill_quality
 
     assert gentle_score > steep_score, "same track slope, steeper ground should score worse"
-    # Ground penalty at 32° is 0.64, so ~90 * 0.64 ≈ 58
+    # Ground penalty at 32° is 0.55, so ~94 * 0.55 ≈ 52
     assert 40 < steep_score < 75
 
 
@@ -498,21 +507,20 @@ def test_bootpack_section_in_skin_track():
     skin_score = score_tour(pure_skin).uphill_quality
 
     assert skin_score > boot_score
-    # 3 segments at -50 should hurt but not annihilate
+    # 3 segments around -1.7 should hurt but not annihilate
     assert boot_score > 30
 
 
 def test_sustained_steep_descent_is_terrible():
     """Long sustained steep descent (18-20 degrees) — scary on XC gear.
 
-    This should score very poorly, near zero or negative.
+    This should score very poorly for downhill quality.
     A real example: accidentally skiing a black diamond on XC skis.
     """
     points = _make_tour([(-19, 20)], ground_slope=22)
     score = score_tour(points)
-    # 19° scores -7.5 per segment, ground penalty at 22° ≈ 0.94
-    # Should be negative or very low
-    assert score.downhill_quality < 0
+    # 19° scores about +20 in the updated curve, then gets a mild ground multiplier.
+    assert score.downhill_quality < 25
 
 
 def test_out_and_back_symmetry():
@@ -542,9 +550,9 @@ def test_ridge_traverse_barely_any_vertical():
     points = _make_tour(segments, ground_slope=15)
     score = score_tour(points)
 
-    # Flat terrain scores ~50 DH, ~82 UH — mediocre but fine
-    assert 30 < score.downhill_quality < 70
-    assert 70 < score.uphill_quality < 100
+    # Flat terrain gets modest DH and pinned UH at 100 for tiny climbs.
+    assert 70 < score.downhill_quality < 90
+    assert score.uphill_quality == 100
     assert score.total > 40
 
 
@@ -573,8 +581,7 @@ def test_gentle_approach_steep_summit():
     points = _make_tour([(4, 30), (14, 5)])
     score = score_tour(points)
 
-    # 30 gentle segments at ~101.7 + 5 steep at ~36.7
-    # Average ≈ ~92 — still good
+    # 30 gentle segments at 100 and 5 steep around ~60.
     assert score.uphill_quality > 70
 
 
@@ -597,21 +604,19 @@ def test_gps_spike_doesnt_dominate():
 def test_pure_traverse_no_up_no_down():
     """A pure traverse where track_slope is always near zero.
 
-    All points have track_slope between -0.5 and +0.5, which means
-    they get classified as neither uphill nor downhill. Should result
-    in zero DH and neutral UH scores.
+    All points have tiny +/- slopes; these are still classified by sign.
     """
     points = [_make_point(distance=0, track_slope=None, ground_slope=15)]
     for i in range(10):
         points.append(_make_point(
             distance=(i + 1) * 100,
-            track_slope=0.3 * (1 if i % 2 else -1),  # ±0.3°, below the 0.5° threshold
+            track_slope=0.3 * (1 if i % 2 else -1),
             ground_slope=15,
         ))
     score = score_tour(points)
 
-    assert score.downhill_quality == 0  # nothing classified as downhill
-    assert score.uphill_quality == 50  # no uphill = neutral
+    assert score.downhill_quality > 70
+    assert score.uphill_quality == 100
 
 
 def test_extremely_short_tour():
@@ -691,9 +696,6 @@ def test_compute_runout_exposures_matches_scalar():
 
 # -- Property-based fuzz tests (Hypothesis) --
 
-from hypothesis import given, settings, assume
-from hypothesis import strategies as st
-
 # Slopes from 0 to 60 degrees, including fractional values
 slope_st = st.floats(min_value=0, max_value=60, allow_nan=False, allow_infinity=False)
 # Ground slopes including None
@@ -709,30 +711,30 @@ def test_fuzz_downhill_monotonic(slope):
 
 @given(slope=slope_st)
 def test_fuzz_downhill_bounded(slope):
-    """Downhill score should be between -50 and 105 for any slope."""
+    """Downhill score should be between -20 and 115 for any slope."""
     score = _downhill_segment_score(slope)
-    assert -50 <= score <= 105
+    assert -20 <= score <= 115
 
 
 @given(slope=slope_st)
 def test_fuzz_uphill_monotonic(slope):
-    """Uphill score should never increase past the 5-degree peak."""
-    if slope >= 5:
-        assert _uphill_segment_score(slope) <= _uphill_segment_score(5)
+    """Uphill score should never increase past the 7-degree peak plateau."""
+    if slope >= 7:
+        assert _uphill_segment_score(slope) <= _uphill_segment_score(7)
 
 
 @given(slope=slope_st)
 def test_fuzz_uphill_bounded(slope):
-    """Uphill score should be between -50 and 105 for any slope."""
+    """Uphill score should be between -30 and 100 for any slope."""
     score = _uphill_segment_score(slope)
-    assert -50 <= score <= 105
+    assert -30 <= score <= 100
 
 
 @given(ground_slope=ground_slope_st)
 def test_fuzz_ground_penalty_bounded(ground_slope):
-    """Ground slope penalty should always be in [0.1, 1.0]."""
+    """Ground slope penalty should always be in [0.25, 1.0]."""
     penalty = _ground_slope_penalty(ground_slope)
-    assert 0.1 <= penalty <= 1.0
+    assert 0.25 <= penalty <= 1.0
 
 
 @given(slope=slope_st)

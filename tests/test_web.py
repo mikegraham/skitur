@@ -8,11 +8,16 @@ from pathlib import Path
 import pytest
 
 from skitur.mapdata import compute_map_grids
-from skitur.report import _build_response, build_embedded_report_html
+from skitur.report import (
+    _build_response,
+    _strip_upload_ui_for_static_report,
+    build_embedded_report_html,
+)
 from skitur.stats import compute_stats
 from skitur.app import app
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
+pytestmark = pytest.mark.enable_socket
 
 
 @pytest.fixture
@@ -143,16 +148,15 @@ def test_hood_descent_is_steep(analysis_data):
 def test_hood_descent_downhill_score_is_bad(analysis_data):
     """Hood descent is scary steep — downhill fun should be very low."""
     score = analysis_data["score"]
-    # Widened from 30→40 after raising the floor for gentle slopes.
-    # Hood has some mellow sections that benefit from the higher floor,
-    # but it's still clearly a bad XC ski.
-    assert score["downhill_quality"] < 40, \
+    # The updated downhill curve has a higher floor for mellow sections.
+    # Hood still should not look "good" as XC downhill quality.
+    assert score["downhill_quality"] < 50, \
         f"Hood descent downhill quality {score['downhill_quality']} is too high — it's scary AF"
 
 
 def test_hood_descent_total_score_is_low(analysis_data):
     """Hood is a serious mountaineering descent, not a fun XC tour."""
-    assert analysis_data["score"]["total"] < 50, \
+    assert analysis_data["score"]["total"] < 60, \
         "Hood descent should score poorly as an XC tour"
 
 
@@ -288,6 +292,15 @@ def test_template_has_required_js_functions(client):
                "slopeToColor", "groundSlopeRGBA", "GradientTrackLayer",
                "renderSlopeImage", "updateHoverMarker"):
         assert fn in html, f"Missing JS function: {fn}"
+
+
+def test_strip_upload_ui_for_static_report_removes_upload_markup():
+    template = (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").read_text()
+    stripped = _strip_upload_ui_for_static_report(template)
+
+    assert 'id="upload-section"' not in stripped
+    assert "Analyze Another" not in stripped
+    assert 'id="results-section"' in stripped
 
 
 def test_template_has_no_opentopo_tiles(client):
