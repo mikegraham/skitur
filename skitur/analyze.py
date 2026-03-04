@@ -135,6 +135,13 @@ def _cumulative_distances(points: list[tuple]) -> np.ndarray:
     return dists
 
 
+def _distance_window_indices(distances: np.ndarray, half_window_m: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return [lo, hi) index bounds for a symmetric distance window at each point."""
+    lo = np.searchsorted(distances, distances - half_window_m, side="left")
+    hi = np.searchsorted(distances, distances + half_window_m, side="right")
+    return lo, hi
+
+
 def _smooth_elevations(elevations: np.ndarray, distances: np.ndarray,
                         window_m: float = 30.0) -> np.ndarray:
     """Smooth elevation profile using a distance-based rolling average.
@@ -143,16 +150,19 @@ def _smooth_elevations(elevations: np.ndarray, distances: np.ndarray,
     Only needed for DEM-sourced elevations (integer quantization noise).
     """
     smoothed = np.copy(elevations)
-    n = len(elevations)
+    if elevations.size == 0:
+        return smoothed
 
-    for i in range(n):
-        half = window_m / 2
-        d_i = distances[i]
-        lo = np.searchsorted(distances, d_i - half, side='left')
-        hi = np.searchsorted(distances, d_i + half, side='right')
-        window = elevations[lo:hi]
-        valid = window[~np.isnan(window)]
-        if len(valid) > 0:
-            smoothed[i] = np.mean(valid)
+    lo, hi = _distance_window_indices(distances, window_m / 2.0)
 
+    valid = ~np.isnan(elevations)
+    values = np.where(valid, elevations, 0.0)
+
+    prefix_sum = np.concatenate(([0.0], np.cumsum(values, dtype=float)))
+    prefix_count = np.concatenate(([0], np.cumsum(valid.astype(np.int64), dtype=np.int64)))
+
+    window_sum = prefix_sum[hi] - prefix_sum[lo]
+    window_count = prefix_count[hi] - prefix_count[lo]
+
+    np.divide(window_sum, window_count, out=smoothed, where=window_count > 0)
     return smoothed
