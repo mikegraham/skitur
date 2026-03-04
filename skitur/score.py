@@ -13,6 +13,32 @@ from skitur.analyze import TrackPoint
 from skitur.geo import METERS_PER_DEG_LAT
 from skitur.terrain import get_elevation, get_elevations, get_ground_slope, get_ground_slopes
 
+CurvePoints = tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True)
+class PiecewiseCurve:
+    points: CurvePoints
+    xs: tuple[float, ...]
+    ys: tuple[float, ...]
+    min_x: float
+    max_x: float
+
+
+def _build_curve(points: CurvePoints) -> PiecewiseCurve:
+    if len(points) < 2:
+        raise ValueError("Piecewise curve needs at least two points")
+    xs, ys = zip(*points, strict=True)
+    if any(a >= b for a, b in zip(xs, xs[1:], strict=False)):
+        raise ValueError("Piecewise curve x values must be strictly increasing")
+    return PiecewiseCurve(
+        points=points,
+        xs=tuple(xs),
+        ys=tuple(ys),
+        min_x=xs[0],
+        max_x=xs[-1],
+    )
+
 # Standing avalanche terrain range (ground slope, degrees)
 STANDING_AVY_MIN_DEG = 30.0
 STANDING_AVY_MAX_DEG = 45.0
@@ -29,8 +55,12 @@ AVY_TAPER_DEG = 4.0
 AVY_CORE_PENALTY = 1.0
 AVY_SLOPE_MIN = STANDING_AVY_MIN_DEG - AVY_TAPER_DEG  # 26 deg
 AVY_SLOPE_MAX = STANDING_AVY_MAX_DEG + AVY_TAPER_DEG  # 49 deg
-AVY_PENALTY_X = (AVY_SLOPE_MIN, STANDING_AVY_MIN_DEG, STANDING_AVY_MAX_DEG, AVY_SLOPE_MAX)
-AVY_PENALTY_Y = (0.0, AVY_CORE_PENALTY, AVY_CORE_PENALTY, 0.0)
+AVY_PENALTY_CURVE = _build_curve((
+    (AVY_SLOPE_MIN, 0.0),
+    (STANDING_AVY_MIN_DEG, AVY_CORE_PENALTY),
+    (STANDING_AVY_MAX_DEG, AVY_CORE_PENALTY),
+    (AVY_SLOPE_MAX, 0.0),
+))
 
 # Runout exposure tracing
 AVY_TRACE_STEP_M = 30.0     # Step size when tracing uphill (meters)
@@ -45,50 +75,52 @@ DOWNHILL_WEIGHT = 0.45
 UPHILL_WEIGHT = 0.25
 AVY_WEIGHT = 0.30
 
-GROUND_SLOPE_PENALTY_X = (0.0, 20.0, 40.0)
-GROUND_SLOPE_PENALTY_Y = (1.0, 1.0, 0.25)
+GROUND_SLOPE_PENALTY_CURVE = _build_curve((
+    (0.0, 1.0),
+    (20.0, 1.0),
+    (40.0, 0.25),
+))
 
-DOWNHILL_SCORE_X = (0.0, 3.0, 6.0, 8.0, 12.0, 18.0, 21.0)
-DOWNHILL_SCORE_Y = (70.0, 100.0, 115.0, 115.0, 90.0, 40.0, -20.0)
+DOWNHILL_SCORE_CURVE = _build_curve((
+    (0.0, 70.0),
+    (3.0, 100.0),
+    (6.0, 115.0),
+    (8.0, 115.0),
+    (12.0, 90.0),
+    (18.0, 40.0),
+    (21.0, -20.0),
+))
 
-UPHILL_SCORE_X = (7.0, 30.0)
-UPHILL_SCORE_Y = (100.0, -30.0)
+UPHILL_SCORE_CURVE = _build_curve((
+    (7.0, 100.0),
+    (30.0, -30.0),
+))
 
 
 def _interp_piecewise(
     x: float,
-    xs: tuple[float, ...],
-    ys: tuple[float, ...],
+    curve: PiecewiseCurve,
 ) -> float:
-    x_clamped = min(max(x, xs[0]), xs[-1])
-    return float(np.interp(x_clamped, xs, ys))
+    x_clamped = min(max(x, curve.min_x), curve.max_x)
+    return float(np.interp(x_clamped, curve.xs, curve.ys))
 
 
 def _interp_piecewise_array(
     x: np.ndarray,
-    xs: tuple[float, ...],
-    ys: tuple[float, ...],
+    curve: PiecewiseCurve,
 ) -> np.ndarray:
-    x_clipped = np.clip(x, xs[0], xs[-1])
-    return np.asarray(np.interp(x_clipped, xs, ys), dtype=float)
+    x_clipped = np.clip(x, curve.min_x, curve.max_x)
+    return np.asarray(np.interp(x_clipped, curve.xs, curve.ys), dtype=float)
 
 
 def _avy_slope_penalty(slope: float) -> float:
     """0-1 avalanche penalty for a slope angle."""
-    return _interp_piecewise(
-        slope,
-        AVY_PENALTY_X,
-        AVY_PENALTY_Y,
-    )
+    return _interp_piecewise(slope, AVY_PENALTY_CURVE)
 
 
 def _avy_slope_penalties(slopes: np.ndarray) -> np.ndarray:
     """Vectorized 0-1 avalanche penalty for an array of slope angles."""
-    penalties = _interp_piecewise_array(
-        slopes,
-        AVY_PENALTY_X,
-        AVY_PENALTY_Y,
-    )
+    penalties = _interp_piecewise_array(slopes, AVY_PENALTY_CURVE)
     return np.clip(penalties, 0.0, 1.0)
 
 
@@ -385,11 +417,7 @@ def _ground_slope_penalty(ground_slope: float | None) -> float:
     """
     if ground_slope is None:
         return 1.0
-    return _interp_piecewise(
-        ground_slope,
-        GROUND_SLOPE_PENALTY_X,
-        GROUND_SLOPE_PENALTY_Y,
-    )
+    return _interp_piecewise(ground_slope, GROUND_SLOPE_PENALTY_CURVE)
 
 
 def _apply_ground_slope_multiplier(segment_score: float, multiplier: float) -> float:
@@ -416,11 +444,7 @@ def _downhill_segment_score(slope: float) -> float:
     - 21 deg -> -20
     - >=21 deg -> -20
     """
-    return _interp_piecewise(
-        slope,
-        DOWNHILL_SCORE_X,
-        DOWNHILL_SCORE_Y,
-    )
+    return _interp_piecewise(slope, DOWNHILL_SCORE_CURVE)
 
 
 def _uphill_segment_score(slope: float) -> float:
@@ -431,8 +455,4 @@ def _uphill_segment_score(slope: float) -> float:
     - 7..30 deg: linear decay to -30
     - >=30 deg: -30
     """
-    return _interp_piecewise(
-        slope,
-        UPHILL_SCORE_X,
-        UPHILL_SCORE_Y,
-    )
+    return _interp_piecewise(slope, UPHILL_SCORE_CURVE)

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from skitur.geo import haversine_distance, METERS_PER_DEG_LAT
 from skitur.terrain import get_elevation, get_ground_slope, load_dem_for_bounds
-from skitur.score import _avy_slope_danger, _downhill_segment_score, _uphill_segment_score
+from skitur.score import _avy_slope_penalty, _downhill_segment_score, _uphill_segment_score
 
 # Optimization parameters
 POINT_SPACING_M = 100.0      # Target spacing between route points
@@ -41,7 +41,7 @@ def _segment_cost(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
     Lower cost = better route. Combines:
     - Slope quality (prefer moderate grades)
-    - Avalanche danger (avoid 30-45 degree terrain)
+    - Avalanche penalty (avoid 30-45 degree terrain)
     - Distance (shorter is better, but not dominant)
     """
     elev1 = get_elevation(lat1, lon1)
@@ -69,7 +69,7 @@ def _segment_cost(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     mid_lat = (lat1 + lat2) / 2
     mid_lon = (lon1 + lon2) / 2
     ground_slope = get_ground_slope(mid_lat, mid_lon)
-    avy_cost = _avy_slope_danger(ground_slope) if ground_slope else 0.0
+    avy_cost = _avy_slope_penalty(ground_slope) if ground_slope else 0.0
 
     # Distance cost (normalized, minor factor)
     dist_cost = dist / 1000.0  # 1km = 1.0 cost
