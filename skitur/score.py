@@ -310,46 +310,76 @@ def score_tour(points: list[TrackPoint]) -> TourScore:
     if len(points) < 2:
         return TourScore(0, 0, 0, 0, 0, 0, 0, 0)
 
-    uphill_slopes: list[float] = []
-    downhill_slopes: list[float] = []
-    uphill_scores: list[float] = []
-    downhill_scores: list[float] = []
+    n_points = len(points)
+    lats = np.fromiter((p.lat for p in points), dtype=float, count=n_points)
+    lons = np.fromiter((p.lon for p in points), dtype=float, count=n_points)
+    track_slopes = np.fromiter(
+        (np.nan if p.track_slope is None else p.track_slope for p in points),
+        dtype=float,
+        count=n_points,
+    )
+    ground_slopes = np.fromiter(
+        (np.nan if p.ground_slope is None else p.ground_slope for p in points),
+        dtype=float,
+        count=n_points,
+    )
 
-    for p in points:
-        if p.track_slope is not None:
-            gp = _ground_slope_penalty(p.ground_slope)
-            if p.track_slope > 0.0:  # uphill
-                slope = p.track_slope
-                uphill_slopes.append(slope)
-                raw_score = _uphill_segment_score(slope)
-                uphill_scores.append(_apply_ground_slope_multiplier(raw_score, gp))
-            elif p.track_slope < 0.0:  # downhill
-                slope = abs(p.track_slope)
-                downhill_slopes.append(slope)
-                raw_score = _downhill_segment_score(slope)
-                downhill_scores.append(_apply_ground_slope_multiplier(raw_score, gp))
+    ground_valid = ~np.isnan(ground_slopes)
+    ground_penalties = np.ones(n_points, dtype=float)
+    if np.any(ground_valid):
+        ground_penalties[ground_valid] = _interp_piecewise_array(
+            ground_slopes[ground_valid],
+            GROUND_SLOPE_PENALTY_CURVE,
+        )
+
+    uphill_mask = track_slopes > 0.0
+    downhill_mask = track_slopes < 0.0
+
+    uphill_slopes = track_slopes[uphill_mask]
+    downhill_slopes = -track_slopes[downhill_mask]
+
+    if uphill_slopes.size:
+        uphill_raw = _interp_piecewise_array(uphill_slopes, UPHILL_SCORE_CURVE)
+        uphill_scores = np.where(
+            uphill_raw >= 0.0,
+            uphill_raw * ground_penalties[uphill_mask],
+            uphill_raw,
+        )
+    else:
+        uphill_scores = np.empty(0, dtype=float)
+
+    if downhill_slopes.size:
+        downhill_raw = _interp_piecewise_array(downhill_slopes, DOWNHILL_SCORE_CURVE)
+        downhill_scores = np.where(
+            downhill_raw >= 0.0,
+            downhill_raw * ground_penalties[downhill_mask],
+            downhill_raw,
+        )
+    else:
+        downhill_scores = np.empty(0, dtype=float)
 
     # Vectorized runout exposure: collect all points with ground slope
-    avy_indices = [i for i, p in enumerate(points) if p.ground_slope is not None]
-    if avy_indices:
-        avy_lats = np.array([points[i].lat for i in avy_indices])
-        avy_lons = np.array([points[i].lon for i in avy_indices])
-        avy_runout_penalty = _compute_runout_exposures(avy_lats, avy_lons).tolist()
+    avy_indices = np.flatnonzero(ground_valid)
+    if avy_indices.size:
+        avy_runout_penalty = _compute_runout_exposures(
+            lats[avy_indices],
+            lons[avy_indices],
+        )
     else:
-        avy_runout_penalty = []
+        avy_runout_penalty = np.empty(0, dtype=float)
 
     # === Downhill quality ===
     # Unclamped average - negative scores for terrible segments naturally
     # drag the average down without needing a separate penalty.
-    if downhill_scores:
-        downhill_quality = sum(downhill_scores) / len(downhill_scores)
+    if downhill_scores.size:
+        downhill_quality = float(np.mean(downhill_scores))
     else:
         downhill_quality = 0.0
 
     # === Uphill quality ===
     # Unclamped average; no uphill = neutral (not penalized)
-    if uphill_scores:
-        uphill_quality = sum(uphill_scores) / len(uphill_scores)
+    if uphill_scores.size:
+        uphill_quality = float(np.mean(uphill_scores))
     else:
         # No uphill at all - neutral, not a flaw
         uphill_quality = 50.0
@@ -359,24 +389,23 @@ def score_tour(points: list[TrackPoint]) -> TourScore:
     # Two types: standing ON avy terrain (30-45 deg), or UNDER it (runout).
     # These overlap -- being on avy terrain is already max penalty.
     # We want: pct_exposed = pct_on_avy + pct_under_avy_but_not_on_it
-    total_ground = sum(1 for p in points if p.ground_slope is not None)
+    total_ground = int(np.count_nonzero(ground_valid))
 
-    if total_ground > 0 and avy_indices:
-        # Per-point standing penalty: 1 if on 30-45 deg ground, 0 otherwise
-        standing_flags = np.zeros(len(avy_indices))
-        for k, idx in enumerate(avy_indices):
-            gs = points[idx].ground_slope
-            if gs is not None and STANDING_AVY_MIN_DEG <= gs <= STANDING_AVY_MAX_DEG:
-                standing_flags[k] = 1.0
+    if total_ground > 0 and avy_indices.size:
+        # Per-point standing penalty: 1 if on 30-45 deg ground, 0 otherwise.
+        avy_ground = ground_slopes[avy_indices]
+        standing_flags = (
+            (avy_ground >= STANDING_AVY_MIN_DEG)
+            & (avy_ground <= STANDING_AVY_MAX_DEG)
+        ).astype(float)
 
-        pct_avy = float(np.sum(standing_flags) / total_ground * 100)
+        pct_avy = float(np.sum(standing_flags) / total_ground * 100.0)
 
         # Per-point runout penalty (0-1 scale, from uphill tracing)
-        runout_arr = np.array(avy_runout_penalty)
         # Only count runout for points NOT already on avy terrain
-        not_on_avy = standing_flags == 0
+        not_on_avy = standing_flags == 0.0
         if np.any(not_on_avy):
-            pct_runout = float(np.mean(runout_arr[not_on_avy]) * 100)
+            pct_runout = float(np.mean(avy_runout_penalty[not_on_avy]) * 100.0)
         else:
             pct_runout = 0.0
 
@@ -403,8 +432,8 @@ def score_tour(points: list[TrackPoint]) -> TourScore:
         avy_exposure=avy_exposure,
         pct_avy_terrain=pct_avy,
         pct_runout_exposed=pct_runout,
-        avg_downhill_slope=sum(downhill_slopes) / len(downhill_slopes) if downhill_slopes else 0,
-        avg_uphill_slope=sum(uphill_slopes) / len(uphill_slopes) if uphill_slopes else 0,
+        avg_downhill_slope=float(np.mean(downhill_slopes)) if downhill_slopes.size else 0.0,
+        avg_uphill_slope=float(np.mean(uphill_slopes)) if uphill_slopes.size else 0.0,
     )
 
 
