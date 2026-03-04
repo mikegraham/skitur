@@ -55,6 +55,7 @@ addopts = [
 [tool.coverage.run]
 source = ["skitur"]
 branch = true
+omit = ["skitur/optimize.py"]
 
 [tool.coverage.report]
 show_missing = true
