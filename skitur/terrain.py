@@ -444,10 +444,10 @@ def get_slope_grid(
     cell_size = _dem_cache.cell_size
 
     # Index range in the native DEM that covers our bounds
-    xi_min = max(0, np.searchsorted(x_coords, lon_min) - 2)
-    xi_max = min(len(x_coords) - 1, np.searchsorted(x_coords, lon_max) + 2)
-    yi_min = max(0, np.searchsorted(y_coords, lat_min) - 2)
-    yi_max = min(len(y_coords) - 1, np.searchsorted(y_coords, lat_max) + 2)
+    xi_min = max(0, int(np.searchsorted(x_coords, lon_min)) - 2)
+    xi_max = min(len(x_coords) - 1, int(np.searchsorted(x_coords, lon_max)) + 2)
+    yi_min = max(0, int(np.searchsorted(y_coords, lat_min)) - 2)
+    yi_max = min(len(y_coords) - 1, int(np.searchsorted(y_coords, lat_max)) + 2)
 
     # Need at least 3 cells in each direction for Horn's method
     if xi_max - xi_min < 2 or yi_max - yi_min < 2:

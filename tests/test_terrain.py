@@ -8,6 +8,8 @@ from skitur.terrain import (
     load_dem_for_bounds,
 )
 
+pytestmark = pytest.mark.enable_socket
+
 
 @pytest.fixture(autouse=True, scope="module")
 def _load_mt_hood_dem():
@@ -102,6 +104,8 @@ def test_descending_route_has_monotonic_elevation():
     ]
     elevations = [get_elevation(lat, lon) for lat, lon in points]
     assert all(e is not None for e in elevations)
+    elevation_values = [float(e) for e in elevations if e is not None]
+    assert len(elevation_values) == len(elevations)
     # Each point should be lower than the previous
-    for i in range(1, len(elevations)):
-        assert elevations[i] < elevations[i - 1]
+    for i in range(1, len(elevation_values)):
+        assert elevation_values[i] < elevation_values[i - 1]

@@ -6,6 +6,7 @@ from skitur.gpx import load_track
 from skitur.analyze import analyze_track
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
+pytestmark = pytest.mark.enable_socket
 
 
 def test_load_track():
@@ -32,6 +33,8 @@ def test_analyze_track_without_resampling():
         assert pt.track_slope < 0
 
     # Elevations should be present and decrease overall
+    assert analysis[0].elevation is not None
+    assert analysis[-1].elevation is not None
     assert analysis[0].elevation > analysis[-1].elevation
 
 

@@ -2,11 +2,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from skitur.analyze import TrackPoint, analyze_track
 from skitur.gpx import load_track
 from skitur.stats import compute_stats
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
+pytestmark = pytest.mark.enable_socket
 
 
 def test_compute_stats():

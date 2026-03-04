@@ -8,22 +8,45 @@ dependencies = [
     "flask",
     "gpxpy",
     "numpy",
+    "scipy",
     "orjson",
     "dem-stitcher",
+    "rasterio",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "ruff", "mypy"]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-ruff",
+    "pytest-randomly",
+    "pytest-mypy",
+    "pytest-socket",
+    "ruff",
+    "mypy",
+    "matplotlib",
+    "deptry",
+]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "skitur"]
+required_plugins = [
+    "pytest-cov",
+    "pytest-ruff",
+    "pytest-randomly",
+    "pytest-mypy",
+    "pytest-socket",
+]
 addopts = [
     "-v",
     "--tb=short",
+    "--ruff",
+    "--mypy",
+    "--disable-socket",
     "--cov=skitur",
     "--cov-report=term-missing:skip-covered",
     "--cov-fail-under=70",
@@ -32,7 +55,6 @@ addopts = [
 [tool.coverage.run]
 source = ["skitur"]
 branch = true
-omit = ["skitur/__main__.py"]
 
 [tool.coverage.report]
 show_missing = true
