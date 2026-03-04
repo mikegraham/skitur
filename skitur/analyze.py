@@ -24,7 +24,7 @@ class TrackPoint:
 
 
 def _dem_cell_size() -> float:
-    """Return the current DEM cell size in meters (10 for 3DEP, 30 for SRTM)."""
+    """Return the current DEM cell size in meters (10 for 3DEP, 30 for GLO-30)."""
     from skitur.terrain import _dem_cache
     if _dem_cache is not None:
         return _dem_cache.cell_size
@@ -57,32 +57,17 @@ def analyze_track(
     n = len(points)
     lats_arr = np.array(lats)
     lons_arr = np.array(lons)
+    cumulative_dists = _cumulative_distances(points)
 
-    # Use GPX elevations if available, otherwise fall back to DEM
-    has_gpx_elev = len(points[0]) >= 3 and any(
-        p[2] is not None for p in points if len(p) >= 3
+    # DEM-only elevation path (simpler and deterministic across GPX sources).
+    elevations = get_elevations(lats_arr, lons_arr)
+    cell_size = _dem_cell_size()
+    smooth_distance = cell_size * 3  # 30m for 3DEP, 90m for GLO-30
+    elevations = _smooth_elevations(
+        elevations,
+        cumulative_dists,
+        window_m=smooth_distance,
     )
-
-    if has_gpx_elev:
-        # GPX elevations (from barometric altimeter / GPS) are smooth and
-        # sub-meter precision — use them directly, no smoothing needed.
-        elevations = np.array([
-            p[2] if (len(p) >= 3 and p[2] is not None) else np.nan
-            for p in points
-        ])
-        # Fill any gaps with DEM lookups
-        nan_mask = np.isnan(elevations)
-        if np.any(nan_mask):
-            dem_fill = get_elevations(lats_arr[nan_mask], lons_arr[nan_mask])
-            elevations[nan_mask] = dem_fill
-    else:
-        # No GPX elevations — use DEM with bilinear interpolation.
-        # DEM values need smoothing to reduce quantization artifacts.
-        elevations = get_elevations(lats_arr, lons_arr)
-        cell_size = _dem_cell_size()
-        smooth_distance = cell_size * 3  # 30m for 3DEP, 90m for SRTM
-        elevations = _smooth_elevations(elevations, _cumulative_distances(points),
-                                         window_m=smooth_distance)
 
     # Ground slopes from DEM (independent of track elevation source)
     slope_arr = get_ground_slopes(lats_arr, lons_arr)
@@ -96,15 +81,8 @@ def analyze_track(
         None if np.isnan(a) else float(a) for a in aspect_arr
     ]
 
-    cumulative_dists = _cumulative_distances(points)
-
-    # Minimum slope baseline: for DEM-only elevations, use 2 cells;
-    # for GPX elevations, use a modest baseline to smooth GPS noise.
-    if has_gpx_elev:
-        min_slope_baseline = 30.0  # 30m is enough for smooth GPX data
-    else:
-        cell_size = _dem_cell_size()
-        min_slope_baseline = cell_size * 2  # 20m for 3DEP, 60m for SRTM
+    # Minimum slope baseline in DEM cells.
+    min_slope_baseline = cell_size * 2  # 20m for 3DEP, 60m for GLO-30
 
     # Compute track slopes
     result = []

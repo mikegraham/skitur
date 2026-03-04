@@ -89,6 +89,25 @@ def test_analyze_invalid_gpx(client):
     assert "error" in data
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'<?xml version="1.0"?><!DOCTYPE gpx><gpx></gpx>',
+        b'<?xml version="1.0"?><gpx><!ENTITY xxe "boom"></gpx>',
+    ],
+)
+def test_analyze_rejects_xml_bomb_markers(client, payload):
+    """DOCTYPE/ENTITY markers should be rejected before parse."""
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(payload), "bomb.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    data = json.loads(resp.data)
+    assert data["error"] == "Invalid GPX file"
+
+
 def test_analyze_success(client):
     with open(TEST_GPX, "rb") as f:
         resp = client.post(
