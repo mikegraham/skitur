@@ -55,17 +55,3 @@ def analyze():
         return _json_error("Analysis failed. Please check your GPX file.", 500)
     finally:
         tmp_path.unlink(missing_ok=True)
-
-
-if __name__ == "__main__":
-    import argparse
-    import os
-
-    parser = argparse.ArgumentParser(description="Run the skitur Flask app")
-    parser.add_argument("--port", type=int, default=5000, help="Port for web server")
-    args = parser.parse_args()
-
-    app.run(
-        debug=os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true"),
-        port=args.port,
-    )
