@@ -135,7 +135,9 @@ def _cumulative_distances(points: list[tuple]) -> np.ndarray:
     return dists
 
 
-def _distance_window_indices(distances: np.ndarray, half_window_m: float) -> tuple[np.ndarray, np.ndarray]:
+def _distance_window_indices(
+    distances: np.ndarray, half_window_m: float
+) -> tuple[np.ndarray, np.ndarray]:
     """Return [lo, hi) index bounds for a symmetric distance window at each point."""
     lo = np.searchsorted(distances, distances - half_window_m, side="left")
     hi = np.searchsorted(distances, distances + half_window_m, side="right")
