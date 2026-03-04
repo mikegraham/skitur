@@ -20,6 +20,7 @@
 - [057](057-mobile-legend-bars-disappear.md) Colormap legend bars disappear below ~700px
 - [058](058-path-optimization-skiable-safe-routing.md) Path optimization for skiable + safe routing
 - [060](060-static-report-no-upload-ui.md) Static report must not include upload UI
+- [061](061-unify-slope-sampling-accuracy.md) Unify slope sampling pipeline; current version harms accuracy
 
 ## P2 - Nice to Have
 - [020](020-chart-horizontal-space.md) Elevation/slope profile horizontal space efficiency
