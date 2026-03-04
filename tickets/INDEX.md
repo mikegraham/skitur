@@ -18,6 +18,8 @@
 - [054](054-default-dem-cache-seed-plan.md) Default DEM cache seeding plan for launch
 - [055](055-contour-line-spacing-standard.md) Standardize contour line spacing (use standard topo intervals)
 - [057](057-mobile-legend-bars-disappear.md) Colormap legend bars disappear below ~700px
+- [058](058-path-optimization-skiable-safe-routing.md) Path optimization for skiable + safe routing
+- [060](060-static-report-no-upload-ui.md) Static report must not include upload UI
 
 ## P2 - Nice to Have
 - [020](020-chart-horizontal-space.md) Elevation/slope profile horizontal space efficiency
@@ -56,6 +58,7 @@
 - [045](FIXED/045-ground-dist-degree-ticks.md) ~~Ground Angle Distribution - Degree Ticks on X-Axis~~ FIXED
 - [046](FIXED/046-remove-plotly-watermark.md) ~~Remove "Produced with Plotly.js" Watermark~~ FIXED
 - [056](056-track-stats-gap-and-score-card-width.md) Track Stats gap and Tour Quality Score card width
+- [059](059-ground-legend-hard-breakpoints.md) Ground legend breakpoints must be hard at 30° and 45°
 
 ## Questions for User (ANSWERED)
 - Q1: (from #024) For the topo+features view, should we use OpenTopoMap tiles or something else? **-> OpenTopoMap is fine, unless we have a better idea.**
