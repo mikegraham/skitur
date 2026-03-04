@@ -45,6 +45,16 @@ def _is_us_coverage(lat: float, lon: float) -> bool:
     return False
 
 
+def _fractional_axis_coords(values: np.ndarray, axis: np.ndarray) -> np.ndarray:
+    """Map coordinates to fractional indices on a uniformly spaced axis."""
+    if len(axis) <= 1:
+        return np.zeros_like(values, dtype=float)
+    step = float(axis[1] - axis[0])
+    if step == 0.0:
+        return np.zeros_like(values, dtype=float)
+    return (values - float(axis[0])) / step
+
+
 @dataclass
 class DEMCache:
     """Cached DEM as numpy arrays for fast lookups."""
@@ -67,8 +77,8 @@ class DEMCache:
         """Get elevation at a point using bilinear interpolation."""
         from scipy.ndimage import map_coordinates
 
-        x_frac = float(np.interp(lon, self.x_coords, np.arange(len(self.x_coords))))
-        y_frac = float(np.interp(lat, self.y_coords, np.arange(len(self.y_coords))))
+        x_frac = float(_fractional_axis_coords(np.array([lon], dtype=float), self.x_coords)[0])
+        y_frac = float(_fractional_axis_coords(np.array([lat], dtype=float), self.y_coords)[0])
 
         val = map_coordinates(
             self.data, [[y_frac], [x_frac]],
@@ -88,9 +98,9 @@ class DEMCache:
         """
         from scipy.ndimage import map_coordinates
 
-        # Convert lat/lon to fractional indices in the DEM grid
-        x_frac = np.interp(lons, self.x_coords, np.arange(len(self.x_coords)))
-        y_frac = np.interp(lats, self.y_coords, np.arange(len(self.y_coords)))
+        # Convert lat/lon to fractional indices in the DEM grid.
+        x_frac = _fractional_axis_coords(lons, self.x_coords)
+        y_frac = _fractional_axis_coords(lats, self.y_coords)
 
         elevs = map_coordinates(
             self.data, [y_frac, x_frac],
@@ -112,8 +122,8 @@ class DEMCache:
         lats = np.linspace(lat_min, lat_max, resolution)
         lon_mesh, lat_mesh = np.meshgrid(lons, lats)
 
-        x_frac = np.interp(lon_mesh, self.x_coords, np.arange(len(self.x_coords)))
-        y_frac = np.interp(lat_mesh, self.y_coords, np.arange(len(self.y_coords)))
+        x_frac = _fractional_axis_coords(lon_mesh, self.x_coords)
+        y_frac = _fractional_axis_coords(lat_mesh, self.y_coords)
 
         elev_grid = map_coordinates(self.data, [y_frac, x_frac], order=1, mode='nearest')
 
@@ -506,14 +516,18 @@ def get_slope_grid(
     native_lats = y_coords[yi_min+1:yi_max]
     native_lons = x_coords[xi_min+1:xi_max]
 
-    # Build the display grid
+    # Build the display grid.
     disp_lons = np.linspace(lon_min, lon_max, resolution)
     disp_lats = np.linspace(lat_min, lat_max, resolution)
     lon_mesh, lat_mesh = np.meshgrid(disp_lons, disp_lats)
 
-    # Map display coordinates to fractional indices in the native slope grid
-    col_frac = np.interp(lon_mesh.ravel(), native_lons, np.arange(len(native_lons)))
-    row_frac = np.interp(lat_mesh.ravel(), native_lats, np.arange(len(native_lats)))
+    # Convert display lon/lat axes into native slope-grid index space, then
+    # expand to full 2D fractional index grids for map_coordinates.
+    col_coords = _fractional_axis_coords(disp_lons, native_lons)
+    row_coords = _fractional_axis_coords(disp_lats, native_lats)
+    col_frac_grid, row_frac_grid = np.meshgrid(col_coords, row_coords)
+    col_frac = col_frac_grid.ravel()
+    row_frac = row_frac_grid.ravel()
 
     # Replace NaN with 0 for interpolation (NaN causes map_coordinates issues)
     nan_mask = np.isnan(slope_native)
