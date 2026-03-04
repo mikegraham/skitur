@@ -16,8 +16,33 @@ build/
 *.png
 *_output/
 *_report.html
+*_report_*.html
 debug.html
+debug_*.html
+README_preview.html
 _profile_tmp/
+.playwright-mcp/
+report_logs/
+skitur/report_logs/
+
+# Generated data exports / estimates
+nordic_*.csv
+overpass_estimate_*.csv
+overpass_estimate_*.json
+profile_hotspot_*.json
+profile_hotspot_*.txt
+profile_hotspot_*.html
+profile_line_*.txt
+
+# Local scratch analysis inputs/outputs
+profile_*.py
+europe_demo_route.gpx
+europe_fast_routes_gpx/
+test_routes_gpx/
+test_routes_border_tiles.geojson
+Soshubetsu-dake_Ski_Touring_Hokkaido_Japan.gpx
+disclaimer_research.md
+security_best_practices_report.md
 
 # Caches
 .pytest_cache/
@@ -37,4 +62,3 @@ prof.out
 .claude/
 upstream/
 okuteine_debug.html
-bench_dem.py
