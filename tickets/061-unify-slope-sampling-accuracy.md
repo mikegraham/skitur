@@ -47,5 +47,23 @@ As part of this refactor, evaluate switching slope/elevation sampling to:
 
 Goal: convert boundary ambiguity into explicit missing-data handling, reducing silent accuracy errors near edges and nodata zones.
 
+## Design Notes From Review
+1. Compute track slope from a directional derivative, not a two-point elevation anchor.
+2. At each track point, use DEM gradient `g = (dz/dx, dz/dy)` and a horizontal travel direction unit vector `u = (ux, uy)`.
+3. Compute signed slope along travel direction as `dz/ds = g · u`, then `slope_deg = degrees(atan(dz/ds))`.
+4. This directly answers "slope in the direction of travel" and is more stable than point-to-point `atan2(dz, ds)` on noisy point spacing.
+
+## Data-Flow Note (Reuse Loaded DEM)
+1. Reuse the already-loaded DEM array and georeferencing from `load_dem_for_bounds(...)`.
+2. Compute native gradient fields once per DEM extent.
+3. Sample those gradient fields for analysis, scoring, and map output through one shared API.
+4. Avoid recomputing elevation offsets repeatedly for each slope query.
+
+## Irregular Spacing Note (Avoid Uniform Resampling)
+1. Do not require uniform track resampling to estimate slope direction.
+2. Estimate travel tangent on irregular distance samples using a small local neighborhood.
+3. Start with a small neighborhood target (for example `k=3..5` points with distance weights), not a large smoothing window.
+4. Keep endpoint behavior explicit via one-sided neighborhoods.
+
 ## Notes
 This ticket is intentionally scoped to correctness and consistency first. Performance improvements from reusing shared derivative fields are a secondary benefit.

@@ -84,7 +84,12 @@ def analyze_track(
     # Minimum slope baseline in DEM cells.
     min_slope_baseline = cell_size * 2  # 20m for 3DEP, 60m for GLO-30
 
-    # Compute track slopes
+    # TODO(#061): Keep this loop-based baseline slope calculation for now.
+    # Next refactor should prioritize correctness over raw speed:
+    # 1) compute/load one shared DEM derivative field (dz/dx, dz/dy),
+    # 2) estimate local track direction at each point,
+    # 3) compute directional slope via dot(grad_z, direction),
+    # 4) then vectorize once output stability and boundary behavior are validated.
     result = []
     for i in range(n):
         lat, lon = points[i][0], points[i][1]
