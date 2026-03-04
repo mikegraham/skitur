@@ -11,7 +11,8 @@ import numpy as np
 
 from skitur.analyze import TrackPoint
 from skitur.geo import METERS_PER_DEG_LAT
-from skitur.terrain import get_elevation, get_elevations, get_ground_slope, get_ground_slopes
+from skitur import terrain as terrain_mod
+from skitur.terrain import get_elevation, get_elevations
 
 CurvePoints = tuple[tuple[float, float], ...]
 
@@ -63,8 +64,9 @@ AVY_PENALTY_CURVE = _build_curve((
 ))
 
 # Runout exposure tracing
-AVY_TRACE_STEP_M = 30.0     # Step size when tracing uphill (meters)
-AVY_TRACE_MAX_M = 500.0     # Maximum distance to trace uphill
+AVY_TRACE_MAX_M = 500.0      # Maximum distance to trace uphill (meters)
+AVY_TRACE_STEPS = 64         # Fixed number of uphill tracing steps
+AVY_TRACE_STEP_M = AVY_TRACE_MAX_M / AVY_TRACE_STEPS
 
 # Avalanche exposure blend weights
 AVY_STANDING_WEIGHT = 1.5
@@ -137,8 +139,8 @@ def _avy_slope_dangers(slopes: np.ndarray) -> np.ndarray:
 def _compute_runout_exposure(lat: float, lon: float) -> float:
     """Compute avalanche exposure from terrain above (0-1 scale).
 
-    Traces uphill in the fall line direction until hitting a ridge,
-    accumulating penalty from any avalanche terrain above.
+    Traces uphill along local DEM gradient direction until ridge/flat terrain.
+    Accumulates penalty from avalanche-prone terrain above the point.
     """
     exposure = 0.0
     curr_lat, curr_lon = lat, lon
@@ -147,56 +149,60 @@ def _compute_runout_exposure(lat: float, lon: float) -> float:
     if prev_elev is None:
         return 0.0
 
-    # Get fall line direction (steepest ascent) at starting point
-    step_deg_lat = AVY_TRACE_STEP_M / METERS_PER_DEG_LAT
-    step_deg_lon = AVY_TRACE_STEP_M / (METERS_PER_DEG_LAT * math.cos(math.radians(lat)))
+    curr_dx, curr_dy, curr_invalid = terrain_mod._horn_gradients(  # pylint: disable=protected-access
+        np.array([curr_lat], dtype=float),
+        np.array([curr_lon], dtype=float),
+    )
 
-    distance_traced = 0.0
-
-    while distance_traced < AVY_TRACE_MAX_M:
-        # Find steepest uphill direction by sampling neighbors
-        best_elev = prev_elev
-        best_lat, best_lon = curr_lat, curr_lon
-
-        for dlat_sign in [-1, 0, 1]:
-            for dlon_sign in [-1, 0, 1]:
-                if dlat_sign == 0 and dlon_sign == 0:
-                    continue
-                test_lat = curr_lat + dlat_sign * step_deg_lat
-                test_lon = curr_lon + dlon_sign * step_deg_lon
-                test_elev = get_elevation(test_lat, test_lon)
-
-                if test_elev is not None and test_elev > best_elev:
-                    best_elev = test_elev
-                    best_lat, best_lon = test_lat, test_lon
-
-        # Check if we've hit a ridge (no uphill direction found)
-        if best_elev <= prev_elev:
+    for step_idx in range(1, AVY_TRACE_STEPS + 1):
+        dx = float(curr_dx[0])
+        dy = float(curr_dy[0])
+        if bool(curr_invalid[0]) or (not np.isfinite(dx)) or (not np.isfinite(dy)):
             break
 
-        # Move to the new position
-        curr_lat, curr_lon = best_lat, best_lon
-        distance_traced += AVY_TRACE_STEP_M
+        # In Horn gradients, +dy points south (raster row direction),
+        # so uphill north component is -dy.
+        east = dx
+        north = -dy
+        grad_norm = math.hypot(east, north)
+        if grad_norm < 1e-12:
+            break
 
-        # Check slope penalty at this position
-        slope = get_ground_slope(curr_lat, curr_lon)
-        if slope is not None:
-            # Weight by distance (closer terrain is more consequential)
+        lon_scale = METERS_PER_DEG_LAT * math.cos(math.radians(curr_lat))
+        if abs(lon_scale) < 1e-12:
+            break
+
+        step_east_m = AVY_TRACE_STEP_M * (east / grad_norm)
+        step_north_m = AVY_TRACE_STEP_M * (north / grad_norm)
+        next_lat = curr_lat + (step_north_m / METERS_PER_DEG_LAT)
+        next_lon = curr_lon + (step_east_m / lon_scale)
+        next_elev = get_elevation(next_lat, next_lon)
+        if next_elev is None or next_elev <= prev_elev:
+            break
+
+        next_dx, next_dy, next_invalid = terrain_mod._horn_gradients(  # pylint: disable=protected-access
+            np.array([next_lat], dtype=float),
+            np.array([next_lon], dtype=float),
+        )
+
+        curr_lat, curr_lon = next_lat, next_lon
+        prev_elev = next_elev
+        distance_traced = step_idx * AVY_TRACE_STEP_M
+
+        if not bool(next_invalid[0]):
+            slope = math.degrees(math.atan(math.hypot(float(next_dx[0]), float(next_dy[0]))))
             distance_factor = 1.0 - (distance_traced / AVY_TRACE_MAX_M)
             exposure += _avy_slope_penalty(slope) * distance_factor * 0.2
 
-        prev_elev = best_elev
+        curr_dx, curr_dy, curr_invalid = next_dx, next_dy, next_invalid
 
     return min(exposure, 1.0)
 
 
-# Per-point loop version (_compute_runout_exposure above) does ~900k scalar
-# numpy searchsorted calls (~12s on 10k points). This batched version processes
-# all points at each trace step with one get_elevations() call (~16 total),
-# bringing it to ~0.1s. Only 8% of the final score - safe to delete if it's
-# not worth the code.
+# TODO: When we revisit performance, move this loop to a compiled kernel
+# (Numba/Cython) while keeping the same gradient-following behavior.
 def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
-    """Vectorized runout exposure for all points simultaneously."""
+    """Batch runout exposure by following DEM gradient ascent for all points."""
     n = len(lats)
     exposure = np.zeros(n)
 
@@ -204,78 +210,102 @@ def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
     curr_lons = lons.copy()
     prev_elevs = get_elevations(lats, lons)
 
-    # Points with no elevation data get zero exposure
+    # Points with no elevation data get zero exposure.
     active = ~np.isnan(prev_elevs)
+    grad_dx = np.full(n, np.nan, dtype=float)
+    grad_dy = np.full(n, np.nan, dtype=float)
+    grad_invalid = np.ones(n, dtype=bool)
+    grad_ready = np.zeros(n, dtype=bool)
 
-    step_deg_lat = AVY_TRACE_STEP_M / METERS_PER_DEG_LAT
-    # Use mean lat for lon scaling (same approximation as scalar version)
-    mean_lat = np.mean(lats) if n > 0 else 45.0
-    step_deg_lon = AVY_TRACE_STEP_M / (
-        METERS_PER_DEG_LAT * math.cos(math.radians(float(mean_lat)))
-    )
-
-    max_steps = int(AVY_TRACE_MAX_M / AVY_TRACE_STEP_M)
-    distance_traced = 0.0
-
-    # Neighbor offsets: 8 directions (excluding center)
-    dlat_signs = np.array([-1, -1, -1, 0, 0, 1, 1, 1])
-    dlon_signs = np.array([-1, 0, 1, -1, 1, -1, 0, 1])
-
-    for _ in range(max_steps):
-        n_active = np.count_nonzero(active)
-        if n_active == 0:
+    for step_idx in range(1, AVY_TRACE_STEPS + 1):
+        idx = np.where(active)[0]
+        if idx.size == 0:
             break
 
-        # Get indices of active points
-        idx = np.where(active)[0]
+        need_grad_idx = idx[~grad_ready[idx]]
+        if need_grad_idx.size:
+            dx, dy, invalid = terrain_mod._horn_gradients(  # pylint: disable=protected-access
+                curr_lats[need_grad_idx],
+                curr_lons[need_grad_idx],
+            )
+            grad_dx[need_grad_idx] = dx
+            grad_dy[need_grad_idx] = dy
+            grad_invalid[need_grad_idx] = invalid
+            grad_ready[need_grad_idx] = True
+
         a_lats = curr_lats[idx]
-        a_lons = curr_lons[idx]
         a_prev = prev_elevs[idx]
-        na = len(idx)
+        east = grad_dx[idx]
+        north = -grad_dy[idx]
+        invalid = grad_invalid[idx]
+        grad_norm = np.hypot(east, north)
+        lon_scale = METERS_PER_DEG_LAT * np.cos(np.radians(a_lats))
 
-        # Build neighbor coordinates for all active points x 8 directions
-        # Shape: (8, na)
-        nb_lats = a_lats[np.newaxis, :] + dlat_signs[:, np.newaxis] * step_deg_lat
-        nb_lons = a_lons[np.newaxis, :] + dlon_signs[:, np.newaxis] * step_deg_lon
+        finite = np.isfinite(east) & np.isfinite(north)
+        good_lon_scale = np.abs(lon_scale) >= 1e-12
+        has_gradient = finite & (~invalid) & (grad_norm >= 1e-12) & good_lon_scale
 
-        # Flatten to (8*na,), get elevations, reshape back to (8, na)
-        nb_elevs = get_elevations(nb_lats.ravel(), nb_lons.ravel()).reshape(8, na)
+        bad_idx = idx[~has_gradient]
+        if bad_idx.size:
+            active[bad_idx] = False
+            grad_ready[bad_idx] = False
 
-        # Replace NaN with -inf so they lose the argmax
-        nb_elevs_safe = np.where(np.isnan(nb_elevs), -np.inf, nb_elevs)
-
-        # Find highest neighbor for each active point
-        best_dir = np.argmax(nb_elevs_safe, axis=0)  # shape (na,)
-        best_elev = nb_elevs_safe[best_dir, np.arange(na)]
-
-        # Check which points found an uphill direction
-        going_up = best_elev > a_prev
-
-        # Points that hit a ridge become inactive
-        ridge_idx = idx[~going_up]
-        active[ridge_idx] = False
-
-        # For points still going up, move to the new position
-        up_mask = going_up
-        up_idx = idx[up_mask]
-        if len(up_idx) == 0:
+        move_idx = idx[has_gradient]
+        if move_idx.size == 0:
             continue
 
-        best_dir_up = best_dir[up_mask]
-        curr_lats[up_idx] = a_lats[up_mask] + dlat_signs[best_dir_up] * step_deg_lat
-        curr_lons[up_idx] = a_lons[up_mask] + dlon_signs[best_dir_up] * step_deg_lon
-        prev_elevs[up_idx] = best_elev[up_mask]
+        m_east = east[has_gradient]
+        m_north = north[has_gradient]
+        m_norm = grad_norm[has_gradient]
+        m_lats = a_lats[has_gradient]
+        m_lons = curr_lons[idx][has_gradient]
+        m_prev = a_prev[has_gradient]
+        m_lon_scale = lon_scale[has_gradient]
 
-        distance_traced += AVY_TRACE_STEP_M
+        step_east_m = AVY_TRACE_STEP_M * (m_east / m_norm)
+        step_north_m = AVY_TRACE_STEP_M * (m_north / m_norm)
+        next_lats = m_lats + (step_north_m / METERS_PER_DEG_LAT)
+        next_lons = m_lons + (step_east_m / m_lon_scale)
+        next_elevs = get_elevations(next_lats, next_lons)
 
-        # Compute slope penalties at new positions
-        slopes = get_ground_slopes(curr_lats[up_idx], curr_lons[up_idx])
+        have_next = ~np.isnan(next_elevs)
+        going_up = have_next & (next_elevs > m_prev)
+
+        stop_idx = move_idx[~going_up]
+        if stop_idx.size:
+            active[stop_idx] = False
+            grad_ready[stop_idx] = False
+
+        up_idx = move_idx[going_up]
+        if up_idx.size == 0:
+            continue
+
+        up_lats = next_lats[going_up]
+        up_lons = next_lons[going_up]
+        up_elevs = next_elevs[going_up]
+        next_dx, next_dy, next_invalid = terrain_mod._horn_gradients(  # pylint: disable=protected-access
+            up_lats,
+            up_lons,
+        )
+
+        curr_lats[up_idx] = up_lats
+        curr_lons[up_idx] = up_lons
+        prev_elevs[up_idx] = up_elevs
+
+        slopes = np.degrees(np.arctan(np.hypot(next_dx, next_dy)))
+        slopes[next_invalid] = np.nan
         penalties = _avy_slope_penalties(slopes)
-        # NaN slopes -> zero penalty
         penalties[np.isnan(slopes)] = 0.0
 
+        distance_traced = step_idx * AVY_TRACE_STEP_M
         distance_factor = 1.0 - (distance_traced / AVY_TRACE_MAX_M)
         exposure[up_idx] += penalties * distance_factor * 0.2
+
+        # Reuse gradients at the moved-to points for next iteration direction.
+        grad_dx[up_idx] = next_dx
+        grad_dy[up_idx] = next_dy
+        grad_invalid[up_idx] = next_invalid
+        grad_ready[up_idx] = True
 
     return np.minimum(exposure, 1.0)
 
