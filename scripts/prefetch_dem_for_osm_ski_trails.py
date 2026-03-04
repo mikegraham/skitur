@@ -14,17 +14,14 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import random
 import sqlite3
 import sys
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import pyproj
-import requests_cache
 from shapely.geometry import LineString, shape
 from shapely.ops import transform, unary_union
 
@@ -165,7 +162,9 @@ def finalize_cells(cells: dict[tuple[int, int], CellBucket]) -> None:
         bucket.flush()
 
 
-def merge_cell_maps(cell_maps: list[dict[tuple[int, int], CellBucket]]) -> dict[tuple[int, int], CellBucket]:
+def merge_cell_maps(
+    cell_maps: list[dict[tuple[int, int], CellBucket]],
+) -> dict[tuple[int, int], CellBucket]:
     """Merge multiple cell maps into one map."""
     merged: dict[tuple[int, int], CellBucket] = {}
     for cell_map in cell_maps:
@@ -273,12 +272,14 @@ def collect_from_pbf(
     flush_every: int,
 ) -> tuple[dict[tuple[int, int], CellBucket], RelationStats, WayStats]:
     """Collect trail geometry from OSM PBF using pyosmium."""
-    osmium, geojson_factory_cls = load_osmium()
+    osmium_mod, geojson_factory_cls = load_osmium()
 
     relation_stats = RelationStats()
     member_way_ids: set[int] = set()
 
-    class RelationHandler(osmium.SimpleHandler):
+    simple_handler: type[Any] = osmium_mod.SimpleHandler
+
+    class RelationHandler(simple_handler):
         def relation(self, relation: Any) -> None:
             relation_stats.relations_seen += 1
             tags = dict(relation.tags)
@@ -295,7 +296,7 @@ def collect_from_pbf(
     cells: dict[tuple[int, int], CellBucket] = {}
     way_stats = WayStats()
 
-    class WayHandler(osmium.SimpleHandler):
+    class WayHandler(simple_handler):
         def __init__(self) -> None:
             super().__init__()
             self.geojson_factory = geojson_factory_cls()
@@ -498,7 +499,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build DEM tile manifests for OSM nordic/ski-tour trail networks.",
     )
-    parser.add_argument("--pbf", action="append", default=[], help="Input OSM .pbf path. Repeatable.")
+    parser.add_argument(
+        "--pbf",
+        action="append",
+        default=[],
+        help="Input OSM .pbf path. Repeatable.",
+    )
     parser.add_argument(
         "--sqlite",
         action="append",

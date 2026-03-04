@@ -268,7 +268,10 @@ def main() -> int:
     countries = gpd.read_file(args.countries_url).to_crs("EPSG:4326")
     states_all = gpd.read_file(args.us_states_url).to_crs("EPSG:4326")
     us_states = states_all[states_all["admin"] == "United States of America"].copy()
-    tiles = load_tile_geometries(Path(args.tile_manifest)) if args.tile_manifest else load_tile_geometries(None)
+    if args.tile_manifest:
+        tiles = load_tile_geometries(Path(args.tile_manifest))
+    else:
+        tiles = load_tile_geometries(None)
 
     min_lat, max_lat = float(lats.min()), float(lats.max())
     min_lon, max_lon = float(lons.min()), float(lons.max())

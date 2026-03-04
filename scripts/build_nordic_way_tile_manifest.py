@@ -253,10 +253,16 @@ def collect_way_centers(
 
         lat = float(center["lat"])
         lon = float(center["lon"])
-        add_point_to_cells(Point(lon, lat), cells, cell_deg=cell_deg, flush_every=max(1, flush_every))
+        add_point_to_cells(
+            Point(lon, lat),
+            cells,
+            cell_deg=cell_deg,
+            flush_every=max(1, flush_every),
+        )
         stats.elements_with_points += 1
 
-        tags = element.get("tags") if isinstance(element.get("tags"), dict) else {}
+        raw_tags = element.get("tags")
+        tags: dict[str, Any] = raw_tags if isinstance(raw_tags, dict) else {}
         rows.append(
             {
                 "osm_type": "way",
@@ -309,7 +315,10 @@ def route_tiles_by_priority(manifest: pd.DataFrame, dem_names: list[str]) -> pd.
             continue
 
         if covered_union is not None:
-            overlaps = extents.geometry.intersects(covered_union) & ~extents.geometry.touches(covered_union)
+            overlaps = (
+                extents.geometry.intersects(covered_union)
+                & ~extents.geometry.touches(covered_union)
+            )
             extents = extents[~overlaps]
             if extents.empty:
                 continue
@@ -392,7 +401,13 @@ def write_df(df: pd.DataFrame, output_path: Path) -> None:
     raise ValueError(f"Unsupported format for {output_path}; use .csv or .parquet")
 
 
-def download_tiles(manifest: pd.DataFrame, *, cache_root: Path, max_workers: int, overwrite: bool) -> None:
+def download_tiles(
+    manifest: pd.DataFrame,
+    *,
+    cache_root: Path,
+    max_workers: int,
+    overwrite: bool,
+) -> None:
     cache_root.mkdir(parents=True, exist_ok=True)
     if manifest.empty:
         sys.stderr.write("[download] manifest empty; nothing to do\n")
@@ -484,9 +499,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Retry attempts for Overpass HTTP failures.",
     )
 
-    parser.add_argument("--dem-names", default="glo_30,3dep", help="DEM names in priority order.")
-    parser.add_argument("--buffer-m", type=float, default=5000.0, help="Point buffer radius in meters.")
-    parser.add_argument("--cell-deg", type=float, default=1.0, help="Coarse processing cell size in degrees.")
+    parser.add_argument(
+        "--dem-names",
+        default="glo_30,3dep",
+        help="DEM names in priority order.",
+    )
+    parser.add_argument(
+        "--buffer-m",
+        type=float,
+        default=5000.0,
+        help="Point buffer radius in meters.",
+    )
+    parser.add_argument(
+        "--cell-deg",
+        type=float,
+        default=1.0,
+        help="Coarse processing cell size in degrees.",
+    )
     parser.add_argument(
         "--flush-every",
         type=int,
@@ -509,7 +538,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="nordic_way_tiles.csv",
         help="Output tile manifest (.csv/.parquet).",
     )
-    parser.add_argument("--download", action="store_true", help="Download tiles listed in manifest.")
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Download tiles listed in manifest.",
+    )
     parser.add_argument(
         "--cache-root",
         default=str(Path.home() / ".cache" / "skitur" / "dem"),
@@ -517,7 +550,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--max-workers", type=int, default=20, help="Downloader worker count.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing tile files.")
-    parser.add_argument("--dry-run", action="store_true", help="Skip writing outputs and downloads.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Skip writing outputs and downloads.",
+    )
     return parser.parse_args(argv)
 
 
@@ -533,7 +570,10 @@ def main(argv: list[str] | None = None) -> int:
 
     bbox = parse_bbox(args.bbox)
     sys.stderr.write(
-        f"[overpass] endpoint={args.overpass_endpoint} bbox={bbox} piste_types={sorted(piste_types)}\n"
+        "[overpass] "
+        f"endpoint={args.overpass_endpoint} "
+        f"bbox={bbox} "
+        f"piste_types={sorted(piste_types)}\n"
     )
 
     cells, stats, locations = collect_way_centers(
@@ -571,9 +611,22 @@ def main(argv: list[str] | None = None) -> int:
         + "\n"
     )
 
-    manifest = build_manifest(cells, dem_names=dem_names, buffer_m=args.buffer_m, exact=args.exact)
-    counts = manifest.groupby("dem_name")["tile_id"].nunique().to_dict() if not manifest.empty else {}
-    sys.stderr.write(f"[manifest] rows={len(manifest)} tiles_by_dem={json.dumps(counts, sort_keys=True)}\n")
+    manifest = build_manifest(
+        cells,
+        dem_names=dem_names,
+        buffer_m=args.buffer_m,
+        exact=args.exact,
+    )
+    counts = (
+        manifest.groupby("dem_name")["tile_id"].nunique().to_dict()
+        if not manifest.empty
+        else {}
+    )
+    sys.stderr.write(
+        "[manifest] "
+        f"rows={len(manifest)} "
+        f"tiles_by_dem={json.dumps(counts, sort_keys=True)}\n"
+    )
 
     if args.dry_run:
         sys.stderr.write("[dry-run] skipping file writes and downloads\n")
