@@ -8,7 +8,7 @@ import math
 import random
 from dataclasses import dataclass
 
-from skitur.geo import haversine_distance, METERS_PER_DEG_LAT
+from skitur.geo import equirectangular_distance, METERS_PER_DEG_LAT
 from skitur.terrain import get_elevation, get_ground_slope, load_dem_for_bounds
 from skitur.score import _avy_slope_penalty, _downhill_segment_score, _uphill_segment_score
 
@@ -50,7 +50,7 @@ def _segment_cost(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     if elev1 is None or elev2 is None:
         return 1000.0  # Penalty for missing data
 
-    dist = haversine_distance(lat1, lon1, lat2, lon2)
+    dist = equirectangular_distance(lat1, lon1, lat2, lon2)
     if dist < 1.0:
         return 0.0
 
@@ -102,7 +102,7 @@ def _interpolate_points(
     spacing_m: float = POINT_SPACING_M,
 ) -> list[tuple[float, float]]:
     """Generate evenly-spaced points between start and end."""
-    dist = haversine_distance(start[0], start[1], end[0], end[1])
+    dist = equirectangular_distance(start[0], start[1], end[0], end[1])
     if dist < spacing_m:
         return [start, end]
 

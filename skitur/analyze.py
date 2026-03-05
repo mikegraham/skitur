@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from skitur.geo import haversine_distance, resample_track, RESAMPLE_THRESHOLD_M
+from skitur.geo import equirectangular_distance, resample_track, RESAMPLE_THRESHOLD_M
 from skitur.terrain import (
     current_dem_cell_size,
     get_elevations,
@@ -131,7 +131,7 @@ def _cumulative_distances(points: list[tuple]) -> np.ndarray:
     n = len(points)
     dists = np.zeros(n)
     for i in range(1, n):
-        dists[i] = dists[i - 1] + haversine_distance(
+        dists[i] = dists[i - 1] + equirectangular_distance(
             points[i - 1][0], points[i - 1][1], points[i][0], points[i][1])
     return dists
 

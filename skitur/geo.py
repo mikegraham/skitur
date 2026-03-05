@@ -9,7 +9,7 @@ METERS_PER_DEG_LAT = 111_320
 RESAMPLE_THRESHOLD_M = 100
 
 
-def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+def equirectangular_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate distance between two points in meters.
 
     Uses simple equirectangular approximation (accurate for short distances).
@@ -44,7 +44,7 @@ def resample_track(
         lat1, lon1 = prev[0], prev[1]
         lat2, lon2 = cur[0], cur[1]
 
-        dist = haversine_distance(lat1, lon1, lat2, lon2)
+        dist = equirectangular_distance(lat1, lon1, lat2, lon2)
 
         if dist > max_spacing_m:
             n_segments = math.ceil(dist / max_spacing_m)

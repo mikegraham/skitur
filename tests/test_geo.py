@@ -1,21 +1,21 @@
 import pytest
 
-from skitur.geo import haversine_distance, resample_track
+from skitur.geo import equirectangular_distance, resample_track
 
 
-def test_haversine_zero_distance():
-    assert haversine_distance(45.0, -121.0, 45.0, -121.0) == 0.0
+def test_equirectangular_zero_distance():
+    assert equirectangular_distance(45.0, -121.0, 45.0, -121.0) == 0.0
 
 
-def test_haversine_known_distance():
+def test_equirectangular_known_distance():
     # 1 degree of latitude ~ 111km
-    dist = haversine_distance(45.0, -121.0, 46.0, -121.0)
+    dist = equirectangular_distance(45.0, -121.0, 46.0, -121.0)
     assert 110_000 < dist < 112_000
 
 
-def test_haversine_symmetry():
-    d1 = haversine_distance(45.0, -121.0, 45.1, -121.1)
-    d2 = haversine_distance(45.1, -121.1, 45.0, -121.0)
+def test_equirectangular_symmetry():
+    d1 = equirectangular_distance(45.0, -121.0, 45.1, -121.1)
+    d2 = equirectangular_distance(45.1, -121.1, 45.0, -121.0)
     assert d1 == pytest.approx(d2)
 
 
@@ -61,5 +61,5 @@ def test_resample_max_spacing_invariant():
     max_spacing = 100
     result = resample_track(points, max_spacing_m=max_spacing)
     for i in range(1, len(result)):
-        dist = haversine_distance(*result[i - 1], *result[i])
+        dist = equirectangular_distance(*result[i - 1], *result[i])
         assert dist <= max_spacing * 1.01, f"Segment {i} is {dist:.0f}m"
