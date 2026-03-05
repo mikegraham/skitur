@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import time
 from pathlib import Path
 
 import orjson
+from dem_stitcher.datasets import get_global_dem_tile_extents
 from flask import Flask, Response, render_template, request
 
 from skitur.report import build_analysis_payload
@@ -15,6 +17,19 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload limit
+
+
+def _warmup_dem_indexes() -> None:
+    """Preload dem-stitcher tile catalogs to avoid first-request parse cost."""
+    datasets = ("3dep", "glo_30", "glo_90_missing")
+    t0 = time.perf_counter()
+    for dem_name in datasets:
+        get_global_dem_tile_extents(dem_name)
+    dt_ms = (time.perf_counter() - t0) * 1000.0
+    logger.info("Preloaded DEM tile catalogs (%s) in %.1f ms", ", ".join(datasets), dt_ms)
+
+
+_warmup_dem_indexes()
 
 
 @app.route("/")
