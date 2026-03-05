@@ -441,7 +441,7 @@ def get_slope_grid(
 
     Returns (lon_mesh, lat_mesh, slope_grid_degrees).
     """
-    from scipy.ndimage import map_coordinates
+    import cv2
 
     if _dem_cache is None or len(_dem_cache.x_coords) == 0:
         # Fallback: compute at display resolution from interpolated elevations
@@ -482,16 +482,10 @@ def get_slope_grid(
 
     slope_native = np.degrees(np.arctan(np.sqrt(dz_dx**2 + dz_dy**2)))
 
-    # ── Anti-aliasing Gaussian blur (moire prevention) ──
-    #
-    # When the display grid is smaller than the native DEM, downsampling
-    # aliases high-frequency slope variations into speckled moire patterns.
-    # A Gaussian blur before downsampling acts as a low-pass filter to
-    # suppress frequencies above the display grid's Nyquist limit.
-    #
-    # When the display grid matches the native DEM (ratio ≈ 1), no blur
-    # is needed — the data is shown at its natural resolution.
-    from scipy.ndimage import gaussian_filter
+    # ── Anti-aliasing before downsampling (moire prevention) ──
+    # Apply a NaN-safe normalized Gaussian blur, then bilinearly remap to
+    # the display lattice so high-frequency slope texture is suppressed while
+    # preserving exact output bounds.
     downsample_ratio = max(
         slope_native.shape[0] / resolution,
         slope_native.shape[1] / resolution,
@@ -499,17 +493,34 @@ def get_slope_grid(
     # sigma = downsample_ratio / 2 is the textbook minimum for anti-aliasing.
     # Skip blur entirely when ratio < 1.2 (negligible downsampling).
     smooth_sigma = downsample_ratio / 2 if downsample_ratio > 1.2 else 0
+    # Prepare NaN-safe arrays once, then run a normalized blur/remap pipeline.
+    nan_mask = np.isnan(slope_native)
+    slope_filled = np.where(nan_mask, 0.0, slope_native).astype(np.float32)
+    weights = (~nan_mask).astype(np.float32)
+
     if smooth_sigma > 0:
-        nan_mask = np.isnan(slope_native)
-        if np.any(nan_mask):
-            # NaN-safe smoothing via normalized convolution
-            slope_filled = np.where(nan_mask, 0.0, slope_native)
-            weights = (~nan_mask).astype(np.float64)
-            smoothed_num = gaussian_filter(slope_filled, sigma=smooth_sigma)
-            smoothed_den = gaussian_filter(weights, sigma=smooth_sigma)
-            slope_native = np.where(smoothed_den > 0.01, smoothed_num / smoothed_den, np.nan)
-        else:
-            slope_native = gaussian_filter(slope_native, sigma=smooth_sigma)
+        # OpenCV ksize must be odd and positive.
+        blur_ksize = max(3, int(round(smooth_sigma * 6)) | 1)
+        slope_filled = np.asarray(
+            cv2.GaussianBlur(
+                slope_filled,
+                (blur_ksize, blur_ksize),
+                sigmaX=smooth_sigma,
+                sigmaY=smooth_sigma,
+                borderType=cv2.BORDER_REPLICATE,
+            ),
+            dtype=np.float32,
+        )
+        weights = np.asarray(
+            cv2.GaussianBlur(
+                weights,
+                (blur_ksize, blur_ksize),
+                sigmaX=smooth_sigma,
+                sigmaY=smooth_sigma,
+                borderType=cv2.BORDER_REPLICATE,
+            ),
+            dtype=np.float32,
+        )
 
     # The native slope grid covers y_coords[yi_min+1:yi_max], x_coords[xi_min+1:xi_max]
     # (Horn's method trims 1 cell on each side)
@@ -523,27 +534,29 @@ def get_slope_grid(
 
     # Convert display lon/lat axes into native slope-grid index space, then
     # expand to full 2D fractional index grids for map_coordinates.
-    col_coords = _fractional_axis_coords(disp_lons, native_lons)
-    row_coords = _fractional_axis_coords(disp_lats, native_lats)
-    col_frac_grid, row_frac_grid = np.meshgrid(col_coords, row_coords)
-    col_frac = col_frac_grid.ravel()
-    row_frac = row_frac_grid.ravel()
+    col_coords = _fractional_axis_coords(disp_lons, native_lons).astype(np.float32)
+    row_coords = _fractional_axis_coords(disp_lats, native_lats).astype(np.float32)
+    col_map, row_map = np.meshgrid(col_coords, row_coords)
 
-    # Replace NaN with 0 for interpolation (NaN causes map_coordinates issues)
-    nan_mask = np.isnan(slope_native)
-    slope_clean = np.where(nan_mask, 0.0, slope_native)
+    # Bilinear remap on blurred values and blurred validity weights.
+    remapped_sum = cv2.remap(
+        slope_filled,
+        col_map,
+        row_map,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+    remapped_w = cv2.remap(
+        weights,
+        col_map,
+        row_map,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
 
-    # Bilinear resample native slopes to display resolution
-    slope_display = map_coordinates(slope_clean, [row_frac, col_frac],
-                                     order=1, mode='nearest')
-    slope_display = slope_display.reshape(resolution, resolution)
-
-    # Restore NaN where native data was missing (check nearest native cell)
-    if np.any(nan_mask):
-        nan_check = map_coordinates(nan_mask.astype(np.float64),
-                                     [row_frac, col_frac],
-                                     order=0, mode='nearest')
-        slope_display[nan_check.reshape(resolution, resolution) > 0.5] = np.nan
+    slope_display = np.full((resolution, resolution), np.nan, dtype=float)
+    valid = remapped_w > 1e-6
+    slope_display[valid] = (remapped_sum[valid] / remapped_w[valid]).astype(float)
 
     return lon_mesh, lat_mesh, slope_display
 
