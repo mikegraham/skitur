@@ -115,7 +115,7 @@ This is a modeled exposure metric, not a field forecast.
 It combines both:
 
 - the ground you are on: percent of track on 30&deg;-45&deg; ground (30-45 degree ground)
-- the ground above you: uphill tracing from the track location in 30 m steps, up to 500 m or until a ridge is detected
+- the ground above you: uphill tracing from the track location in 64 steps over up to 500 m, or until a ridge is detected
 
 Slope penalties use a full 30-45 band with linear tapers at 26-30 and 45-49.
 

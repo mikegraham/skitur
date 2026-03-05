@@ -26,7 +26,7 @@ def test_readme_rating_constants_match_score_module():
         rf"{score.STANDING_AVY_MIN_DEG:g}-{score.STANDING_AVY_MAX_DEG:g} degree ground",
         text,
     )
-    assert re.search(rf"{score.AVY_TRACE_STEP_M:g} m steps", text)
+    assert re.search(rf"{score.AVY_TRACE_STEPS} steps", text)
     assert re.search(rf"{score.AVY_TRACE_MAX_M:g} m", text)
     assert re.search(rf"{score.AVY_SLOPE_MIN:g}-{score.STANDING_AVY_MIN_DEG:g}", text)
     assert re.search(rf"{score.STANDING_AVY_MAX_DEG:g}-{score.AVY_SLOPE_MAX:g}", text)
