@@ -17,7 +17,7 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     dlat_m = (lat2 - lat1) * METERS_PER_DEG_LAT
     avg_lat = (lat1 + lat2) / 2
     dlon_m = (lon2 - lon1) * METERS_PER_DEG_LAT * math.cos(math.radians(avg_lat))
-    return math.sqrt(dlat_m**2 + dlon_m**2)
+    return math.hypot(dlat_m, dlon_m)
 
 
 def resample_track(

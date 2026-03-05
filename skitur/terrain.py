@@ -328,7 +328,7 @@ def get_ground_slope(lat: float, lon: float, cell_size_m: float | None = None) -
     dz_dx = ((c + 2*f + i) - (a + 2*d + g)) / (8 * cell_size_m)
     dz_dy = ((g + 2*h + i) - (a + 2*b + c)) / (8 * cell_size_m)
 
-    slope_rad = math.atan(math.sqrt(dz_dx**2 + dz_dy**2))
+    slope_rad = math.atan(math.hypot(dz_dx, dz_dy))
     return math.degrees(slope_rad)
 
 
@@ -402,7 +402,7 @@ def get_ground_slopes(lats: np.ndarray, lons: np.ndarray,
     """
     dz_dx, dz_dy, any_nan = _horn_gradients(lats, lons, cell_size_m)
 
-    slope_rad = np.arctan(np.sqrt(dz_dx**2 + dz_dy**2))
+    slope_rad = np.arctan(np.hypot(dz_dx, dz_dy))
     slopes = np.degrees(slope_rad)
     slopes[any_nan] = np.nan
 
@@ -480,7 +480,7 @@ def get_slope_grid(
         (elev_sub[:-2, :-2] + 2*elev_sub[:-2, 1:-1] + elev_sub[:-2, 2:])
     ) / (8 * cell_size_y)
 
-    slope_native = np.degrees(np.arctan(np.sqrt(dz_dx**2 + dz_dy**2)))
+    slope_native = np.degrees(np.arctan(np.hypot(dz_dx, dz_dy)))
 
     # ── Anti-aliasing before downsampling (moire prevention) ──
     # Apply a NaN-safe normalized Gaussian blur, then bilinearly remap to
@@ -587,7 +587,7 @@ def _slope_grid_interpolated(
         (elev[:-2, :-2] + 2*elev[:-2, 1:-1] + elev[:-2, 2:])
     ) / (8 * cell_size_y)
 
-    slope_rad = np.arctan(np.sqrt(dz_dx**2 + dz_dy**2))
+    slope_rad = np.arctan(np.hypot(dz_dx, dz_dy))
     slope_deg = np.degrees(slope_rad)
 
     return lon_mesh[1:-1, 1:-1], lat_mesh[1:-1, 1:-1], slope_deg
@@ -606,7 +606,7 @@ def get_path_slope(lat1: float, lon1: float, lat2: float, lon2: float) -> float 
     dlat_m = (lat2 - lat1) * METERS_PER_DEG_LAT
     avg_lat = (lat1 + lat2) / 2
     dlon_m = (lon2 - lon1) * METERS_PER_DEG_LAT * math.cos(math.radians(avg_lat))
-    dist_m = math.sqrt(dlat_m**2 + dlon_m**2)
+    dist_m = math.hypot(dlat_m, dlon_m)
 
     if dist_m == 0:
         return 0.0
