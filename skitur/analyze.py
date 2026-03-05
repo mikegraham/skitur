@@ -5,6 +5,7 @@ import numpy as np
 
 from skitur.geo import haversine_distance, resample_track, RESAMPLE_THRESHOLD_M
 from skitur.terrain import (
+    current_dem_cell_size,
     get_elevations,
     get_ground_slopes,
     get_ground_aspects,
@@ -25,9 +26,9 @@ class TrackPoint:
 
 def _dem_cell_size() -> float:
     """Return the current DEM cell size in meters (10 for 3DEP, 30 for GLO-30)."""
-    from skitur.terrain import _dem_cache
-    if _dem_cache is not None:
-        return _dem_cache.cell_size
+    cell_size = current_dem_cell_size()
+    if cell_size is not None:
+        return cell_size
     return 10.0  # default to 3DEP
 
 

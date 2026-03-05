@@ -130,8 +130,8 @@ class DEMCache:
         return lon_mesh, lat_mesh, elev_grid
 
 
-# Module-level cache for the current region
-_dem_cache: DEMCache | None = None
+# Module-level DEM state for the current region
+_loaded_dem: DEMCache | None = None
 _dem_lock = threading.Lock()
 
 
@@ -188,7 +188,7 @@ def load_dem_for_bounds(
     Skips the download if the in-memory cache already covers the requested bounds.
     Thread-safe: lock protects the cache check-and-update.
     """
-    global _dem_cache
+    global _loaded_dem
 
     # Add padding
     lat_min -= padding
@@ -198,8 +198,8 @@ def load_dem_for_bounds(
 
     with _dem_lock:
         # Skip download if cache already covers this region
-        if _dem_cache is not None and _dem_cache.covers(lat_min, lat_max, lon_min, lon_max):
-            return _dem_cache
+        if _loaded_dem is not None and _loaded_dem.covers(lat_min, lat_max, lon_min, lon_max):
+            return _loaded_dem
 
         from dem_stitcher import stitch_dem
         center_lat = (lat_min + lat_max) / 2
@@ -258,27 +258,41 @@ def load_dem_for_bounds(
         if not np.issubdtype(data.dtype, np.floating):
             data = data.astype(np.float32)
 
-        _dem_cache = DEMCache(
+        _loaded_dem = DEMCache(
             x_coords=x_coords,
             y_coords=y_coords,
             data=data,
             cell_size=cell_size,
             is_us=is_us,
         )
-        return _dem_cache
+        return _loaded_dem
+
+
+def current_dem_cell_size() -> float | None:
+    """Return loaded DEM cell size in meters, if any DEM is loaded."""
+    if _loaded_dem is None:
+        return None
+    return _loaded_dem.cell_size
+
+
+def current_dem_native_max_dimension() -> int | None:
+    """Return loaded DEM max(native_rows, native_cols), if any DEM is loaded."""
+    if _loaded_dem is None:
+        return None
+    return int(max(_loaded_dem.data.shape))
 
 
 def get_elevation(lat: float, lon: float) -> float | None:
     """Return elevation in meters at (lat, lon), or None if no data."""
-    if _dem_cache is not None and len(_dem_cache.x_coords) > 0:
-        return _dem_cache.get_elevation(lat, lon)
+    if _loaded_dem is not None and len(_loaded_dem.x_coords) > 0:
+        return _loaded_dem.get_elevation(lat, lon)
     raise RuntimeError("DEM not loaded — call load_dem_for_bounds() first")
 
 
 def get_elevations(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
     """Return elevations for arrays of (lat, lon). NaN where no data."""
-    if _dem_cache is not None and len(_dem_cache.x_coords) > 0:
-        return _dem_cache.get_elevations(lats, lons)
+    if _loaded_dem is not None and len(_loaded_dem.x_coords) > 0:
+        return _loaded_dem.get_elevations(lats, lons)
     raise RuntimeError("DEM not loaded — call load_dem_for_bounds() first")
 
 
@@ -286,8 +300,8 @@ def get_elevation_grid(
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, resolution: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Get elevation grid for a region. Returns (lon_mesh, lat_mesh, elev_grid_meters)."""
-    if _dem_cache is not None and len(_dem_cache.x_coords) > 0:
-        return _dem_cache.get_elevation_grid(lat_min, lat_max, lon_min, lon_max, resolution)
+    if _loaded_dem is not None and len(_loaded_dem.x_coords) > 0:
+        return _loaded_dem.get_elevation_grid(lat_min, lat_max, lon_min, lon_max, resolution)
     raise RuntimeError("DEM not loaded — call load_dem_for_bounds() first")
 
 
@@ -298,8 +312,8 @@ def get_ground_slope(lat: float, lon: float, cell_size_m: float | None = None) -
     Cell size defaults to 10m for US (3DEP) or 30m elsewhere (GLO-30).
     """
     if cell_size_m is None:
-        if _dem_cache is not None:
-            cell_size_m = _dem_cache.cell_size
+        if _loaded_dem is not None:
+            cell_size_m = _loaded_dem.cell_size
         else:
             cell_size_m = CELL_SIZE_3DEP if _is_us_coverage(lat, lon) else CELL_SIZE_GLO30
 
@@ -341,8 +355,8 @@ def _horn_gradients(lats: np.ndarray, lons: np.ndarray,
     where any neighbor elevation was missing.
     """
     if cell_size_m is None:
-        if _dem_cache is not None:
-            cell_size_m = _dem_cache.cell_size
+        if _loaded_dem is not None:
+            cell_size_m = _loaded_dem.cell_size
         else:
             cell_size_m = CELL_SIZE_3DEP
 
@@ -443,15 +457,15 @@ def get_slope_grid(
     """
     import cv2
 
-    if _dem_cache is None or len(_dem_cache.x_coords) == 0:
+    if _loaded_dem is None or len(_loaded_dem.x_coords) == 0:
         # Fallback: compute at display resolution from interpolated elevations
         return _slope_grid_interpolated(lat_min, lat_max, lon_min, lon_max, resolution)
 
     # Find the native DEM cells covering the requested bounds (with 1-cell buffer for Horn's)
-    x_coords = _dem_cache.x_coords
-    y_coords = _dem_cache.y_coords
-    elev_native = _dem_cache.data
-    cell_size = _dem_cache.cell_size
+    x_coords = _loaded_dem.x_coords
+    y_coords = _loaded_dem.y_coords
+    elev_native = _loaded_dem.data
+    cell_size = _loaded_dem.cell_size
 
     # Index range in the native DEM that covers our bounds
     xi_min = max(0, int(np.searchsorted(x_coords, lon_min)) - 2)

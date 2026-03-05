@@ -14,7 +14,7 @@ from skitur.gpx import load_track
 from skitur.mapdata import choose_contour_steps_ft, compute_map_grids
 from skitur.score import TourScore, score_tour
 from skitur.stats import compute_stats
-from skitur.terrain import load_dem_for_bounds
+from skitur.terrain import current_dem_native_max_dimension, load_dem_for_bounds
 
 
 def _strip_upload_ui_for_static_report(template_html: str) -> str:
@@ -162,11 +162,9 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, TourScore
     stats = compute_stats(points)
     score = score_tour(points)
 
-    from skitur.terrain import _dem_cache
-
     slope_resolution = 300
-    if _dem_cache is not None:
-        native_max = max(_dem_cache.data.shape)
+    native_max = current_dem_native_max_dimension()
+    if native_max is not None:
         slope_resolution = min(native_max, 800)
 
     contour_resolution = min(slope_resolution, 300)
