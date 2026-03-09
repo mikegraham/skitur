@@ -980,7 +980,11 @@ function renderMap(track, slopeGrid, contours) {
     // Fit bounds and force size recalc (needed after display:none → block)
     map.invalidateSize();
 
-    // Grid bounds = shading extent (2.5x track). Track bounds + buffer = default view.
+    // Grid bounds are chosen server-side:
+    // - at least 1.3x track extent
+    // - square when the extra needed is <= 5 km per side
+    // - otherwise non-square (gray outside shading is acceptable)
+    // Track bounds + small pad = default view.
     const gridBounds = slopeGrid
         ? L.latLngBounds([slopeGrid.lat_min, slopeGrid.lon_min], [slopeGrid.lat_max, slopeGrid.lon_max])
         : L.latLngBounds(track.map(p => [p.lat, p.lon])).pad(0.5);

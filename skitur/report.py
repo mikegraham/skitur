@@ -10,11 +10,59 @@ import numpy as np
 import orjson
 
 from skitur.analyze import TrackPoint, analyze_track
+from skitur.geo import METERS_PER_DEG_LAT
 from skitur.gpx import load_track
 from skitur.mapdata import choose_contour_steps_ft, compute_map_grids
 from skitur.score import TourScore, score_tour
 from skitur.stats import compute_stats
 from skitur.terrain import current_dem_native_max_dimension, load_dem_for_bounds
+
+GRID_MIN_SCALE = 1.3
+GRID_SQUARE_EXTRA_LIMIT_M = 5000.0
+
+
+def _grid_bounds_for_shading(
+    lat_min_t: float,
+    lat_max_t: float,
+    lon_min_t: float,
+    lon_max_t: float,
+    *,
+    min_scale: float = GRID_MIN_SCALE,
+    square_extra_limit_m: float = GRID_SQUARE_EXTRA_LIMIT_M,
+) -> tuple[float, float, float, float]:
+    """Track bounds policy for shaded extent.
+
+    Rules:
+    - At least 1.3x span in each axis.
+    - Prefer square bounds for consistent viewport behavior.
+    - If squaring would add >5 km per side on either axis, keep non-square.
+    """
+    mid_lon = (lon_max_t + lon_min_t) / 2
+    mid_lat = (lat_max_t + lat_min_t) / 2
+    # Avoid divide-by-zero near the poles.
+    lon_scale = max(1e-6, math.cos(math.radians(mid_lat)))
+
+    lat_span = max(0.0, lat_max_t - lat_min_t)
+    lon_span_scaled = max(0.0, (lon_max_t - lon_min_t) * lon_scale)
+
+    base_lat_span = lat_span * min_scale
+    base_lon_span_scaled = lon_span_scaled * min_scale
+
+    square_side_scaled = max(base_lat_span, base_lon_span_scaled)
+
+    extra_lat_m = ((square_side_scaled - base_lat_span) / 2) * METERS_PER_DEG_LAT
+    extra_lon_m = ((square_side_scaled - base_lon_span_scaled) / 2) * METERS_PER_DEG_LAT
+
+    should_square = max(extra_lat_m, extra_lon_m) <= square_extra_limit_m
+
+    if should_square:
+        half_lat = square_side_scaled / 2
+        half_lon = (square_side_scaled / lon_scale) / 2
+    else:
+        half_lat = base_lat_span / 2
+        half_lon = (base_lon_span_scaled / lon_scale) / 2
+
+    return (mid_lat - half_lat, mid_lat + half_lat, mid_lon - half_lon, mid_lon + half_lon)
 
 
 def _strip_upload_ui_for_static_report(template_html: str) -> str:
@@ -137,19 +185,11 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, TourScore
     lat_min_t, lat_max_t = min(lats), max(lats)
     lon_min_t, lon_max_t = min(lons), max(lons)
 
-    mid_lat = (lat_max_t + lat_min_t) / 2
-    mid_lon = (lon_max_t + lon_min_t) / 2
-    lon_scale = math.cos(math.radians(mid_lat))
-    lat_span = lat_max_t - lat_min_t
-    lon_span_scaled = (lon_max_t - lon_min_t) * lon_scale
-    side = max(lat_span, lon_span_scaled) * 1.5
-    half_lat = side / 2
-    half_lon = (side / lon_scale) / 2
-    grid_bounds = (
-        mid_lat - half_lat,
-        mid_lat + half_lat,
-        mid_lon - half_lon,
-        mid_lon + half_lon,
+    grid_bounds = _grid_bounds_for_shading(
+        lat_min_t,
+        lat_max_t,
+        lon_min_t,
+        lon_max_t,
     )
 
     dem_lat_min = min(lat_min_t - 0.02, grid_bounds[0])
