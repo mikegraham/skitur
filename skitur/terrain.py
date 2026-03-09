@@ -19,6 +19,10 @@ from skitur.geo import METERS_PER_DEG_LAT
 
 logger = logging.getLogger(__name__)
 
+
+class ExtentTooLargeError(Exception):
+    """Raised when the requested DEM extent exceeds the allowed limit."""
+
 # EPSG:4326 = WGS84 geographic coordinate system (lat/lon)
 CRS_WGS84 = 4326
 
@@ -189,6 +193,15 @@ def load_dem_for_bounds(
     Thread-safe: lock protects the cache check-and-update.
     """
     global _loaded_dem
+
+    MAX_EXTENT_DEG = 1.0
+    lat_span = lat_max - lat_min
+    lon_span = lon_max - lon_min
+    if lat_span > MAX_EXTENT_DEG or lon_span > MAX_EXTENT_DEG:
+        raise ExtentTooLargeError(
+            f"Route covers too large an area ({lat_span:.2f} x {lon_span:.2f} deg, "
+            f"max {MAX_EXTENT_DEG} x {MAX_EXTENT_DEG} deg)"
+        )
 
     # Add padding
     lat_min -= padding

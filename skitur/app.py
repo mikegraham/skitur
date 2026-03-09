@@ -12,6 +12,7 @@ from dem_stitcher.datasets import get_global_dem_tile_extents
 from flask import Flask, Response, render_template, request
 
 from skitur.report import build_analysis_payload
+from skitur.terrain import ExtentTooLargeError
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,8 @@ def analyze():
         data = build_analysis_payload(tmp_path)
         body = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY)
         return Response(body, content_type="application/json")
+    except ExtentTooLargeError as exc:
+        return _json_error(str(exc), 422)
     except Exception:
         logger.exception("Analysis failed")
         return _json_error("Analysis failed. Please check your GPX file.", 500)

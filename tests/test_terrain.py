@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from skitur.terrain import (
+    ExtentTooLargeError,
     get_elevation, get_elevations,
     get_ground_slope, get_ground_slopes,
     get_path_slope,
@@ -109,3 +110,22 @@ def test_descending_route_has_monotonic_elevation():
     # Each point should be lower than the previous
     for i in range(1, len(elevation_values)):
         assert elevation_values[i] < elevation_values[i - 1]
+
+
+def test_extent_too_large_rejected():
+    """Requests exceeding 1x1 degree should raise ExtentTooLargeError."""
+    with pytest.raises(ExtentTooLargeError, match="too large"):
+        load_dem_for_bounds(40.0, 41.5, -122.0, -121.0)
+
+
+def test_extent_limit_checks_raw_bounds_not_padded():
+    """The limit applies before padding, so 1.01 deg raw span fails
+    but padding inflating a 0.5 deg span to 0.52 deg does not."""
+    # 1.01 deg lat span: over limit regardless of padding
+    with pytest.raises(ExtentTooLargeError):
+        load_dem_for_bounds(40.0, 41.01, -122.0, -121.5)
+
+    # 0.5 deg lat span: under limit even though padding makes it 0.52
+    # This should NOT raise ExtentTooLargeError. It will proceed to the
+    # DEM fetch (which hits the module-level cache from the fixture).
+    load_dem_for_bounds(45.30, 45.40, -121.75, -121.65)
