@@ -69,6 +69,10 @@ class DEMCache:
     cell_size: float
     is_us: bool
 
+    # Precomputed Horn gradient grids (lazily populated)
+    _grad_dz_dx: np.ndarray | None = None
+    _grad_dz_dy: np.ndarray | None = None
+
     def covers(self, lat_min: float, lat_max: float,
                lon_min: float, lon_max: float) -> bool:
         """Check if this cache already covers the requested bounds."""
@@ -76,6 +80,54 @@ class DEMCache:
             return False
         return (self.y_coords[0] <= lat_min and self.y_coords[-1] >= lat_max and
                 self.x_coords[0] <= lon_min and self.x_coords[-1] >= lon_max)
+
+    def _ensure_gradient_grids(self) -> None:
+        """Compute Horn's method gradient grids on native DEM if not already done."""
+        if self._grad_dz_dx is not None:
+            return
+
+        elev = self.data
+        if elev.shape[0] < 3 or elev.shape[1] < 3:
+            self._grad_dz_dx = np.full_like(elev, np.nan)
+            self._grad_dz_dy = np.full_like(elev, np.nan)
+            return
+
+        # Horn's method on the full grid. Output is 2 cells smaller in each
+        # dimension; pad with NaN to keep the same shape/indexing.
+        dz_dx_core = (
+            (elev[:-2, 2:] + 2*elev[1:-1, 2:] + elev[2:, 2:]) -
+            (elev[:-2, :-2] + 2*elev[1:-1, :-2] + elev[2:, :-2])
+        ) / (8 * self.cell_size)
+        dz_dy_core = (
+            (elev[2:, :-2] + 2*elev[2:, 1:-1] + elev[2:, 2:]) -
+            (elev[:-2, :-2] + 2*elev[:-2, 1:-1] + elev[:-2, 2:])
+        ) / (8 * self.cell_size)
+
+        rows, cols = elev.shape
+        self._grad_dz_dx = np.full((rows, cols), np.nan, dtype=np.float32)
+        self._grad_dz_dy = np.full((rows, cols), np.nan, dtype=np.float32)
+        self._grad_dz_dx[1:-1, 1:-1] = dz_dx_core
+        self._grad_dz_dy[1:-1, 1:-1] = dz_dy_core
+
+    def get_horn_gradients(self, lats: np.ndarray, lons: np.ndarray
+                           ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Look up precomputed Horn gradients at arbitrary (lat, lon) points.
+
+        Returns (dz_dx, dz_dy, invalid) where invalid is True for points
+        where any neighbor was NaN (border cells or missing data).
+        """
+        from scipy.ndimage import map_coordinates
+
+        self._ensure_gradient_grids()
+        x_frac = _fractional_axis_coords(lons, self.x_coords)
+        y_frac = _fractional_axis_coords(lats, self.y_coords)
+
+        dz_dx = map_coordinates(self._grad_dz_dx, [y_frac, x_frac],
+                                order=1, mode='nearest')
+        dz_dy = map_coordinates(self._grad_dz_dy, [y_frac, x_frac],
+                                order=1, mode='nearest')
+        invalid = np.isnan(dz_dx) | np.isnan(dz_dy)
+        return dz_dx, dz_dy, invalid
 
     def get_elevation(self, lat: float, lon: float) -> float | None:
         """Get elevation at a point using bilinear interpolation."""
@@ -278,6 +330,11 @@ def load_dem_for_bounds(
             cell_size=cell_size,
             is_us=is_us,
         )
+        # Eagerly compute gradient grids for reasonably sized DEMs.
+        # For large DEMs (>10M pixels), the 0.7s+ computation cost isn't
+        # justified unless many gradient lookups will follow.
+        if data.size <= 10_000_000:
+            _loaded_dem._ensure_gradient_grids()
         return _loaded_dem
 
 
@@ -419,6 +476,26 @@ def _horn_gradients(lats: np.ndarray, lons: np.ndarray,
                np.isnan(f) | np.isnan(g) | np.isnan(h) | np.isnan(i))
 
     return dz_dx, dz_dy, any_nan
+
+
+def get_horn_gradients_fast(lats: np.ndarray, lons: np.ndarray
+                            ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Look up precomputed Horn gradients from the cached DEM grid.
+
+    Much faster than _horn_gradients for repeated calls since the gradient
+    grid is computed once and then only interpolation is needed.
+    Falls back to _horn_gradients if no DEM is loaded or if the DEM is
+    too large for precomputation to be worthwhile.
+    """
+    if _loaded_dem is not None and len(_loaded_dem.x_coords) > 0:
+        # Only use precomputed grids if they're already computed or cheap to compute.
+        # For large DEMs (>10M pixels) the 0.7s+ grid computation isn't worth it
+        # for routes with few points.
+        if _loaded_dem._grad_dz_dx is not None:
+            return _loaded_dem.get_horn_gradients(lats, lons)
+        if _loaded_dem.data.size <= 10_000_000:
+            return _loaded_dem.get_horn_gradients(lats, lons)
+    return _horn_gradients(lats, lons)
 
 
 def get_ground_slopes(lats: np.ndarray, lons: np.ndarray,

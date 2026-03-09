@@ -12,7 +12,7 @@ import numpy as np
 from skitur.analyze import TrackPoint
 from skitur.geo import METERS_PER_DEG_LAT
 from skitur import terrain as terrain_mod
-from skitur.terrain import get_elevation, get_elevations
+from skitur.terrain import get_elevation, get_elevations, get_horn_gradients_fast
 
 CurvePoints = tuple[tuple[float, float], ...]
 
@@ -224,7 +224,7 @@ def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
 
         need_grad_idx = idx[~grad_ready[idx]]
         if need_grad_idx.size:
-            dx, dy, invalid = terrain_mod._horn_gradients(  # pylint: disable=protected-access
+            dx, dy, invalid = get_horn_gradients_fast(
                 curr_lats[need_grad_idx],
                 curr_lons[need_grad_idx],
             )
@@ -283,7 +283,7 @@ def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
         up_lats = next_lats[going_up]
         up_lons = next_lons[going_up]
         up_elevs = next_elevs[going_up]
-        next_dx, next_dy, next_invalid = terrain_mod._horn_gradients(  # pylint: disable=protected-access
+        next_dx, next_dy, next_invalid = get_horn_gradients_fast(
             up_lats,
             up_lons,
         )
