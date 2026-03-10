@@ -26,15 +26,11 @@ def resample_track(
 ) -> list[tuple]:
     """Resample track so no two consecutive points are more than max_spacing_m apart.
 
-    Accepts (lat, lon) or (lat, lon, elevation) tuples.
-    If a segment is longer than max_spacing_m, it is subdivided into segments
-    that are just under max_spacing_m (as few subdivisions as possible).
-    Elevation is linearly interpolated for subdivided points.
+    Accepts (lat, lon) tuples.  If a segment is longer than max_spacing_m, it is
+    subdivided into segments that are just under max_spacing_m.
     """
     if len(points) < 2:
         return list(points)
-
-    has_elev = len(points[0]) >= 3
 
     result = [points[0]]
 
@@ -53,15 +49,7 @@ def resample_track(
                 t = j / n_segments
                 interp_lat = lat1 + t * (lat2 - lat1)
                 interp_lon = lon1 + t * (lon2 - lon1)
-                if has_elev:
-                    e1 = prev[2]
-                    e2 = cur[2]
-                    interp_elev = None
-                    if e1 is not None and e2 is not None:
-                        interp_elev = e1 + t * (e2 - e1)
-                    result.append((interp_lat, interp_lon, interp_elev))
-                else:
-                    result.append((interp_lat, interp_lon))
+                result.append((interp_lat, interp_lon))
 
         result.append(cur)
 
