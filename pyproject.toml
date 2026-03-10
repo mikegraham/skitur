@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Analyze cross-country ski touring routes"
 requires-python = ">=3.10"
 dependencies = [
+    "cachetools",
     "contourpy",
     "dem-stitcher",
     "flask",

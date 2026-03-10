@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import threading
 import time
 from pathlib import Path
 
 import orjson
+from cachetools import LRUCache
 from dem_stitcher.datasets import get_global_dem_tile_extents
 from flask import Flask, Response, render_template, request
 
@@ -18,6 +20,13 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload limit
+
+# In-memory LRU response cache keyed on raw GPX bytes, sized by response bytes.
+_cache: LRUCache[bytes, bytes] = LRUCache(
+    maxsize=50 * 1024 * 1024,
+    getsizeof=len,
+)
+_cache_lock = threading.Lock()
 
 
 def _warmup_dem_indexes() -> None:
@@ -52,19 +61,28 @@ def analyze():
     if gpx_file.filename == "":
         return _json_error("No file selected")
 
-    with tempfile.NamedTemporaryFile(suffix=".gpx", delete=False) as tmp:
-        gpx_file.save(tmp)
-        tmp_path = Path(tmp.name)
+    gpx_bytes = gpx_file.read()
+
+    with _cache_lock:
+        cached = _cache.get(gpx_bytes)
+    if cached is not None:
+        logger.info("Cache hit (%d bytes)", len(cached))
+        return Response(cached, content_type="application/json")
 
     # Reject XML bombs: valid GPX files never contain DOCTYPE or ENTITY declarations.
-    raw = tmp_path.read_text(errors="replace")
-    if "<!DOCTYPE" in raw or "<!ENTITY" in raw:
-        tmp_path.unlink(missing_ok=True)
+    raw_text = gpx_bytes.decode("utf-8", errors="replace")
+    if "<!DOCTYPE" in raw_text or "<!ENTITY" in raw_text:
         return _json_error("Invalid GPX file")
+
+    with tempfile.NamedTemporaryFile(suffix=".gpx", delete=False) as tmp:
+        tmp.write(gpx_bytes)
+        tmp_path = Path(tmp.name)
 
     try:
         data = build_analysis_payload(tmp_path)
         body = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY)
+        with _cache_lock:
+            _cache[gpx_bytes] = body
         return Response(body, content_type="application/json")
     except ExtentTooLargeError as exc:
         return _json_error(str(exc), 422)
