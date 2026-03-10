@@ -19,11 +19,14 @@ from skitur.terrain import ExtentTooLargeError
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload limit
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024   # 10 MB
+RESPONSE_CACHE_BYTES = 50 * 1024 * 1024  # 50 MB per process
+
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
 # In-memory LRU response cache keyed on raw GPX bytes, sized by response bytes.
 _cache: LRUCache[bytes, bytes] = LRUCache(
-    maxsize=50 * 1024 * 1024,
+    maxsize=RESPONSE_CACHE_BYTES,
     getsizeof=len,
 )
 _cache_lock = threading.Lock()
