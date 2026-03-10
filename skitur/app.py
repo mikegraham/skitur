@@ -13,7 +13,7 @@ from cachetools import LRUCache
 from dem_stitcher.datasets import get_global_dem_tile_extents
 from flask import Flask, Response, render_template, request
 
-from skitur.report import build_analysis_payload
+from skitur.report import EmptyTrackError, build_analysis_payload
 from skitur.terrain import ExtentTooLargeError
 
 logger = logging.getLogger(__name__)
@@ -87,6 +87,8 @@ def analyze():
         with _cache_lock:
             _cache[gpx_bytes] = body
         return Response(body, content_type="application/json")
+    except EmptyTrackError:
+        return _json_error("GPX file contains no usable track points")
     except ExtentTooLargeError as exc:
         return _json_error(str(exc), 422)
     except Exception:

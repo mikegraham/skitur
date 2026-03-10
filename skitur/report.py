@@ -22,6 +22,10 @@ GRID_MIN_SCALE = 1.3
 GRID_SQUARE_EXTRA_LIMIT_M = 5000.0
 
 
+class EmptyTrackError(ValueError):
+    """Raised when a GPX file contains no usable track points."""
+
+
 def _grid_bounds_for_shading(
     lat_min_t: float,
     lat_max_t: float,
@@ -186,6 +190,8 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, TourScore
     from skitur.mapdata import _sample_elevation_grid, _sample_slope_grid
 
     raw_points = load_track(gpx_path)
+    if len(raw_points) < 2:
+        raise EmptyTrackError("GPX file contains no usable track points")
 
     lats = [p[0] for p in raw_points]
     lons = [p[1] for p in raw_points]
@@ -258,8 +264,8 @@ def build_embedded_report_html(
     data: dict,
     filename: str,
     *,
-    hide_upload_section: bool = True,
-    hide_new_upload_button: bool = True,
+    hide_upload_section: bool = False,
+    hide_new_upload_button: bool = False,
 ) -> str:
     """Inject analysis JSON into template HTML and auto-render results."""
     data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode()
@@ -294,10 +300,8 @@ def build_embedded_report_html(
 
 def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
     """Generate a self-contained static HTML report for a GPX file."""
-    gpx_path = Path(gpx_path)
     if output_path is None:
         output_path = gpx_path.with_name(gpx_path.stem + "_report.html")
-    output_path = Path(output_path)
 
     data = build_analysis_payload(gpx_path)
     template_html = (Path(__file__).parent / "templates" / "index.html").read_text()
@@ -308,8 +312,6 @@ def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
         template_html=template_html,
         data=data,
         filename=filename,
-        hide_upload_section=True,
-        hide_new_upload_button=True,
     )
 
     output_path.write_text(html)

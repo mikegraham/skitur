@@ -78,13 +78,13 @@ def test_analyze_empty_filename(client):
 
 
 def test_analyze_invalid_gpx(client):
-    """Uploading garbage data should return a 500 with an error message."""
+    """Uploading garbage data should return an error (no parseable track points)."""
     resp = client.post(
         "/api/analyze",
         data={"gpx_file": (BytesIO(b"not a gpx file"), "bad.gpx")},
         content_type="multipart/form-data",
     )
-    assert resp.status_code == 500
+    assert resp.status_code == 400
     data = json.loads(resp.data)
     assert "error" in data
 
@@ -106,6 +106,179 @@ def test_analyze_rejects_xml_bomb_markers(client, payload):
     assert resp.status_code == 400
     data = json.loads(resp.data)
     assert data["error"] == "Invalid GPX file"
+
+
+# ── Cache hit ────────────────────────────────────────────────────────
+
+def test_analyze_cache_hit(client):
+    """Second upload of the same GPX file should return a cached response."""
+    with open(TEST_GPX, "rb") as f:
+        gpx_bytes = f.read()
+
+    resp1 = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(gpx_bytes), "test.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp1.status_code == 200
+    body1 = resp1.data
+
+    resp2 = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(gpx_bytes), "test.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp2.status_code == 200
+    # Cached response should be byte-identical
+    assert resp2.data == body1
+
+
+# ── Error branches ───────────────────────────────────────────────────
+
+def test_analyze_extent_too_large(client, monkeypatch):
+    """GPX spanning >1 degree should return 422."""
+    from skitur import app as app_mod
+    from skitur.terrain import ExtentTooLargeError
+
+    def _boom(path):
+        raise ExtentTooLargeError("Extent too large")
+    monkeypatch.setattr(app_mod, "build_analysis_payload", _boom)
+
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(b"<gpx/>"), "big.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 422
+    data = json.loads(resp.data)
+    assert "too large" in data["error"].lower()
+
+
+def test_analyze_unexpected_error(client, monkeypatch):
+    """Unexpected exceptions should return 500 with a generic message."""
+    from skitur import app as app_mod
+
+    def _boom(path):
+        raise RuntimeError("something broke")
+    monkeypatch.setattr(app_mod, "build_analysis_payload", _boom)
+
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(b"<gpx/>"), "crash.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 500
+    data = json.loads(resp.data)
+    assert "error" in data
+    # Should NOT leak the internal error message
+    assert "something broke" not in data["error"]
+
+
+# ── Broken GPX handling ─────────────────────────────────────────────
+
+def _gpx_bytes(trkpts_xml: str) -> bytes:
+    """Wrap trkpt XML in a minimal valid GPX envelope."""
+    return (
+        b'<?xml version="1.0"?>'
+        b'<gpx xmlns="http://www.topografix.com/GPX/1/1">'
+        b"<trk><trkseg>" + trkpts_xml.encode() + b"</trkseg></trk></gpx>"
+    )
+
+
+def test_analyze_empty_gpx_no_trackpoints(client):
+    """Valid GPX with no <trkpt> elements should return 400."""
+    gpx = (
+        b'<?xml version="1.0"?>'
+        b'<gpx xmlns="http://www.topografix.com/GPX/1/1">'
+        b"<trk><trkseg></trkseg></trk></gpx>"
+    )
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(gpx), "empty.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    data = json.loads(resp.data)
+    assert "no usable track points" in data["error"].lower()
+
+
+def test_analyze_single_point_gpx(client):
+    """A GPX with only one track point is not enough to compute slopes."""
+    gpx = _gpx_bytes('<trkpt lat="45.37" lon="-121.70"/>')
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(gpx), "single.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    data = json.loads(resp.data)
+    assert "no usable track points" in data["error"].lower()
+
+
+def test_analyze_trkpts_with_bad_coords_only(client):
+    """GPX where all trkpts have invalid coordinates should return 400."""
+    gpx = _gpx_bytes(
+        '<trkpt lat="999" lon="-121.70"/>'
+        '<trkpt lat="45.37" lon="999"/>'
+    )
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(gpx), "bad_coords.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    data = json.loads(resp.data)
+    assert "no usable track points" in data["error"].lower()
+
+
+def test_analyze_trkpts_missing_lat_lon(client):
+    """GPX with trkpts that have no lat/lon attributes should return 400."""
+    gpx = _gpx_bytes(
+        "<trkpt/>"
+        '<trkpt lat="45.37"/>'
+        '<trkpt lon="-121.70"/>'
+    )
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(gpx), "no_coords.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    data = json.loads(resp.data)
+    assert "no usable track points" in data["error"].lower()
+
+
+def test_analyze_trkpts_with_non_numeric_coords(client):
+    """GPX with non-numeric lat/lon should skip those points and return 400."""
+    gpx = _gpx_bytes(
+        '<trkpt lat="abc" lon="-121.70"/>'
+        '<trkpt lat="45.37" lon="xyz"/>'
+    )
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(gpx), "non_numeric.gpx")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    data = json.loads(resp.data)
+    assert "no usable track points" in data["error"].lower()
+
+
+def test_analyze_duplicate_points_gpx(client):
+    """GPX where all points are identical (zero distance) should not crash."""
+    gpx = _gpx_bytes(
+        '<trkpt lat="45.37" lon="-121.70"/>' * 10
+    )
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (BytesIO(gpx), "dupes.gpx")},
+        content_type="multipart/form-data",
+    )
+    # Degenerate but parseable — succeeds with zero-distance track
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert len(data["track"]) == 10
+    assert data["stats"]["total_distance_m"] == 0
 
 
 def test_analyze_success(client):
