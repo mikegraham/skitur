@@ -4,13 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from skitur.geo import equirectangular_distance, resample_track, RESAMPLE_THRESHOLD_M
-from skitur.terrain import (
-    current_dem_cell_size,
-    get_elevations,
-    get_ground_slopes,
-    get_ground_aspects,
-    load_dem_for_bounds,
-)
+from skitur.terrain import Terrain
 
 
 @dataclass
@@ -24,16 +18,9 @@ class TrackPoint:
     ground_aspect: float | None = None  # terrain aspect in compass degrees (0=N, 90=E)
 
 
-def _dem_cell_size() -> float:
-    """Return the current DEM cell size in meters (10 for 3DEP, 30 for GLO-30)."""
-    cell_size = current_dem_cell_size()
-    if cell_size is not None:
-        return cell_size
-    return 10.0  # default to 3DEP
-
-
 def analyze_track(
     points: list[tuple],
+    dem: Terrain,
     resample: bool = True,
     max_spacing_m: float = RESAMPLE_THRESHOLD_M,
 ) -> list[TrackPoint]:
@@ -41,6 +28,7 @@ def analyze_track(
 
     Args:
         points: (lat, lon) or (lat, lon, elevation) tuples.
+        dem: Terrain object for elevation/slope queries.
         resample: If True, subdivide long segments to max_spacing_m.
         max_spacing_m: Maximum distance between points when resampling.
     """
@@ -50,10 +38,8 @@ def analyze_track(
     if resample:
         points = resample_track(points, max_spacing_m)
 
-    # Load DEM for the track's bounding box (enables fast local queries)
     lats = [p[0] for p in points]
     lons = [p[1] for p in points]
-    load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons))
 
     n = len(points)
     lats_arr = np.array(lats)
@@ -61,8 +47,8 @@ def analyze_track(
     cumulative_dists = _cumulative_distances(points)
 
     # DEM-only elevation path (simpler and deterministic across GPX sources).
-    elevations = get_elevations(lats_arr, lons_arr)
-    cell_size = _dem_cell_size()
+    elevations = dem.get_elevations(lats_arr, lons_arr)
+    cell_size = dem.cell_size
     smooth_distance = cell_size * 3  # 30m for 3DEP, 90m for GLO-30
     elevations = _smooth_elevations(
         elevations,
@@ -71,13 +57,13 @@ def analyze_track(
     )
 
     # Ground slopes from DEM (independent of track elevation source)
-    slope_arr = get_ground_slopes(lats_arr, lons_arr)
+    slope_arr = dem.get_ground_slopes(lats_arr, lons_arr)
     ground_slopes: list[float | None] = [
         None if np.isnan(s) else float(s) for s in slope_arr
     ]
 
     # Ground aspects from DEM (compass bearing: 0=N, 90=E, 180=S, 270=W)
-    aspect_arr = get_ground_aspects(lats_arr, lons_arr)
+    aspect_arr = dem.get_ground_aspects(lats_arr, lons_arr)
     ground_aspects: list[float | None] = [
         None if np.isnan(a) else float(a) for a in aspect_arr
     ]

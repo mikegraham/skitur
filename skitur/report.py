@@ -13,10 +13,10 @@ import orjson
 from skitur.analyze import TrackPoint, analyze_track
 from skitur.geo import METERS_PER_DEG_LAT
 from skitur.gpx import load_track
-from skitur.mapdata import choose_contour_steps_ft, compute_map_grids
+from skitur.mapdata import choose_contour_steps_ft
 from skitur.score import TourScore, score_tour
 from skitur.stats import compute_stats
-from skitur.terrain import current_dem_native_max_dimension, load_dem_for_bounds
+from skitur.terrain import load_dem_for_bounds
 
 GRID_MIN_SCALE = 1.3
 GRID_SQUARE_EXTRA_LIMIT_M = 5000.0
@@ -203,10 +203,10 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, TourScore
     dem_lat_max = max(lat_max_t + 0.02, grid_bounds[1])
     dem_lon_min = min(lon_min_t - 0.02, grid_bounds[2])
     dem_lon_max = max(lon_max_t + 0.02, grid_bounds[3])
-    load_dem_for_bounds(dem_lat_min, dem_lat_max, dem_lon_min, dem_lon_max, padding=0.01)
+    dem = load_dem_for_bounds(dem_lat_min, dem_lat_max, dem_lon_min, dem_lon_max, padding=0.01)
 
     slope_resolution = 300
-    native_max = current_dem_native_max_dimension()
+    native_max = dem.native_max_dimension
     if native_max is not None:
         slope_resolution = min(native_max, 800)
     contour_resolution = min(slope_resolution, 300)
@@ -216,16 +216,16 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, TourScore
     # Kick off slope grid first -- it's the critical path (~1.5s)
     with ThreadPoolExecutor(max_workers=2) as pool:
         slope_future = pool.submit(
-            _sample_slope_grid, lat_min, lat_max, lon_min, lon_max, slope_resolution
+            _sample_slope_grid, dem, lat_min, lat_max, lon_min, lon_max, slope_resolution
         )
 
         # While slope grid computes, do track analysis + elevation grid + contours
-        points = analyze_track(raw_points)
+        points = analyze_track(raw_points, dem=dem)
         stats = compute_stats(points)
-        score = score_tour(points)
+        score = score_tour(points, dem=dem)
 
         contour_lon_mesh, contour_lat_mesh, contour_elev_grid_ft = _sample_elevation_grid(
-            lat_min, lat_max, lon_min, lon_max, contour_resolution
+            dem, lat_min, lat_max, lon_min, lon_max, contour_resolution
         )
 
         # Wait for slope grid

@@ -24,10 +24,10 @@ from skitur.terrain import load_dem_for_bounds
 pytestmark = pytest.mark.enable_socket
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _load_dem_once():
-    """Ensure DEM is loaded for runout-exposure and score_tour integration tests."""
-    load_dem_for_bounds(44.9, 45.5, -121.9, -121.4, padding=0.02)
+@pytest.fixture(scope="module")
+def dem():
+    """Load DEM for runout-exposure and score_tour integration tests."""
+    return load_dem_for_bounds(44.9, 45.5, -121.9, -121.4, padding=0.02)
 
 
 def _make_point(lat=45.0, lon=-121.0, elevation=2000, distance=0,
@@ -193,42 +193,42 @@ def test_avy_danger_symmetric_tapers():
 
 # -- Integration: score_tour --
 
-def test_score_tour_empty():
-    score = score_tour([])
+def test_score_tour_empty(dem):
+    score = score_tour([], dem)
     assert score.total == 0
     assert score.downhill_quality == 0
     assert score.uphill_quality == 0
     assert score.avy_exposure == 0
 
 
-def test_score_tour_downhill_only():
+def test_score_tour_downhill_only(dem):
     """A pure downhill at sweet spot should score high."""
     points = [
         _make_point(distance=0, track_slope=None, ground_slope=10),
         _make_point(distance=500, track_slope=-8, ground_slope=12),
         _make_point(distance=1000, track_slope=-8, ground_slope=10),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert score.downhill_quality == 115  # sweet spot peak
     assert score.uphill_quality == 50     # no uphill = neutral
     assert score.avg_uphill_slope == 0
     assert score.avg_downhill_slope == 8
 
 
-def test_score_tour_uphill_only():
+def test_score_tour_uphill_only(dem):
     """A pure uphill track at 4 deg should score well."""
     points = [
         _make_point(distance=0, track_slope=None, elevation=1000),
         _make_point(distance=500, track_slope=4, elevation=1500),
         _make_point(distance=1000, track_slope=4, elevation=2000),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert score.uphill_quality > 95  # 4 deg is near peak
     assert score.downhill_quality == 0
     assert score.avg_uphill_slope == 4
 
 
-def test_score_tour_mixed():
+def test_score_tour_mixed(dem):
     """A track with both up and down should score both components."""
     points = [
         _make_point(distance=0, track_slope=None, elevation=1000),
@@ -237,23 +237,23 @@ def test_score_tour_mixed():
         _make_point(distance=1500, track_slope=-7, elevation=1500),
         _make_point(distance=2000, track_slope=-7, elevation=1000),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert score.uphill_quality == 100
     assert score.downhill_quality > 100  # sweet spot bonus
 
 
-def test_score_tour_no_ground_slope():
+def test_score_tour_no_ground_slope(dem):
     """Points without ground slope should give perfect avy safety."""
     points = [
         _make_point(distance=0, track_slope=None, ground_slope=None),
         _make_point(distance=500, track_slope=-8, ground_slope=None),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert score.avy_exposure == 100.0
     assert score.pct_avy_terrain == 0.0
 
 
-def test_sweet_spot_downhill_beats_steep():
+def test_sweet_spot_downhill_beats_steep(dem):
     """A tour at the sweet spot should outscore a scary steep one."""
     sweet = [
         _make_point(distance=0, track_slope=None),
@@ -265,11 +265,11 @@ def test_sweet_spot_downhill_beats_steep():
         _make_point(distance=500, track_slope=-25),
         _make_point(distance=1000, track_slope=-25),
     ]
-    assert score_tour(sweet).downhill_quality > 100
-    assert score_tour(steep).downhill_quality == -20
+    assert score_tour(sweet, dem).downhill_quality > 100
+    assert score_tour(steep, dem).downhill_quality == -20
 
 
-def test_sweet_spot_downhill_beats_flat():
+def test_sweet_spot_downhill_beats_flat(dem):
     """Sweet spot slopes outscore boring flat traverses."""
     sweet = [
         _make_point(distance=0, track_slope=None),
@@ -281,11 +281,11 @@ def test_sweet_spot_downhill_beats_flat():
         _make_point(distance=500, track_slope=-1),
         _make_point(distance=1000, track_slope=-1),
     ]
-    assert score_tour(sweet).downhill_quality > 100
-    assert score_tour(flat).downhill_quality == 80
+    assert score_tour(sweet, dem).downhill_quality > 100
+    assert score_tour(flat, dem).downhill_quality == 80
 
 
-def test_scary_descent_scores_negative():
+def test_scary_descent_scores_negative(dem):
     """A consistently steep descent (22 deg) should score negative."""
     points = [
         _make_point(distance=0, track_slope=None),
@@ -293,22 +293,22 @@ def test_scary_descent_scores_negative():
         _make_point(distance=1000, track_slope=-22),
         _make_point(distance=1500, track_slope=-22),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert score.downhill_quality < 0
 
 
-def test_brutal_uphill_scores_negative():
+def test_brutal_uphill_scores_negative(dem):
     """Very steep uphill (18 deg) should score much worse than mellow."""
     points = [
         _make_point(distance=0, track_slope=None),
         _make_point(distance=500, track_slope=18),
         _make_point(distance=1000, track_slope=18),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert score.uphill_quality < 60
 
 
-def test_mixed_descent_worse_than_pure_sweet_spot():
+def test_mixed_descent_worse_than_pure_sweet_spot(dem):
     """A descent with scary segments should score worse than pure sweet spot."""
     pure_sweet = [
         _make_point(distance=0, track_slope=None),
@@ -324,10 +324,10 @@ def test_mixed_descent_worse_than_pure_sweet_spot():
         _make_point(distance=1500, track_slope=-22),
         _make_point(distance=2000, track_slope=-22),
     ]
-    assert score_tour(pure_sweet).downhill_quality > score_tour(mixed).downhill_quality
+    assert score_tour(pure_sweet, dem).downhill_quality > score_tour(mixed, dem).downhill_quality
 
 
-def test_avy_safe_terrain_scores_higher():
+def test_avy_safe_terrain_scores_higher(dem):
     """Flat ground should score better for avy safety than prime avy terrain."""
     safe = [
         _make_point(distance=0, track_slope=None, ground_slope=10),
@@ -337,10 +337,10 @@ def test_avy_safe_terrain_scores_higher():
         _make_point(distance=0, track_slope=None, ground_slope=38),
         _make_point(distance=500, track_slope=-8, ground_slope=38),
     ]
-    assert score_tour(safe).avy_exposure > score_tour(dangerous).avy_exposure
+    assert score_tour(safe, dem).avy_exposure > score_tour(dangerous, dem).avy_exposure
 
 
-def test_total_score_bounded():
+def test_total_score_bounded(dem):
     """Total score is always 0-100 even when components exceed that."""
     points = [
         _make_point(lat=45.37, lon=-121.70, distance=0,
@@ -350,51 +350,51 @@ def test_total_score_bounded():
         _make_point(lat=45.35, lon=-121.70, distance=2000,
                     track_slope=-7, ground_slope=10, elevation=2000),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert 0 <= score.total <= 100
 
 
-def test_component_can_exceed_100():
+def test_component_can_exceed_100(dem):
     """Sweet spot tours should give component scores above 100."""
     points = [
         _make_point(distance=0, track_slope=None, ground_slope=10),
         _make_point(distance=500, track_slope=-7, ground_slope=10),
         _make_point(distance=1000, track_slope=-7, ground_slope=10),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert score.downhill_quality > 100
 
 
-def test_component_can_go_negative():
+def test_component_can_go_negative(dem):
     """Impossible terrain should give negative component scores."""
     points = [
         _make_point(distance=0, track_slope=None, ground_slope=10),
         _make_point(distance=500, track_slope=-30, ground_slope=10),
         _make_point(distance=1000, track_slope=-30, ground_slope=10),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert score.downhill_quality < 0
 
 
-def test_total_clamped_at_zero():
+def test_total_clamped_at_zero(dem):
     """Total can't go below 0 even with terrible components."""
     points = [
         _make_point(distance=0, track_slope=None, ground_slope=10),
         _make_point(distance=500, track_slope=-30, ground_slope=40),
         _make_point(distance=1000, track_slope=-30, ground_slope=40),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert score.total >= 0
 
 
-def test_total_score_is_weighted_sum():
+def test_total_score_is_weighted_sum(dem):
     """Total score should be a clamped weighted combination of components."""
     points = [
         _make_point(distance=0, track_slope=None, ground_slope=10),
         _make_point(distance=500, track_slope=-8, ground_slope=10),
         _make_point(distance=1000, track_slope=5, ground_slope=10),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     raw = (
         score.downhill_quality * 0.45 +
         score.uphill_quality * 0.25 +
@@ -404,7 +404,7 @@ def test_total_score_is_weighted_sum():
     assert score.total == pytest.approx(expected_total, abs=0.01)
 
 
-def test_ground_penalty_reduces_quality():
+def test_ground_penalty_reduces_quality(dem):
     """Steep ground should reduce downhill quality even with good track slope."""
     flat_ground = [
         _make_point(distance=0, track_slope=None, ground_slope=10),
@@ -416,7 +416,7 @@ def test_ground_penalty_reduces_quality():
         _make_point(distance=500, track_slope=-7, ground_slope=35),
         _make_point(distance=1000, track_slope=-7, ground_slope=35),
     ]
-    assert score_tour(flat_ground).downhill_quality > score_tour(steep_ground).downhill_quality
+    assert score_tour(flat_ground, dem).downhill_quality > score_tour(steep_ground, dem).downhill_quality
 
 
 # -- Realistic touring scenarios --
@@ -437,44 +437,44 @@ def _make_tour(segments, ground_slope=10):
     return points
 
 
-def test_lake_crossing_flat_traverse():
+def test_lake_crossing_flat_traverse(dem):
     """Long flat crossing (like skiing across a frozen lake or meadow).
 
     Even shallow slopes are now classified by sign only.
     """
-    # 0.3° is still counted as downhill (small but non-zero credit)
+    # 0.3 is still counted as downhill (small but non-zero credit)
     dead_flat = _make_tour([(-0.3, 20)], ground_slope=2)
-    score_flat = score_tour(dead_flat)
+    score_flat = score_tour(dead_flat, dem)
     assert score_flat.downhill_quality > 70
     assert score_flat.uphill_quality == 50   # neutral
 
-    # 1.5° is still gentle, but now receives moderate downhill credit.
+    # 1.5 is still gentle, but now receives moderate downhill credit.
     slight_tilt = _make_tour([(-1.5, 20)], ground_slope=2)
-    score_tilt = score_tour(slight_tilt)
+    score_tilt = score_tour(slight_tilt, dem)
     assert 80 < score_tilt.downhill_quality < 90
     assert score_tilt.total > 30
 
 
-def test_switchbacks_on_steep_face():
+def test_switchbacks_on_steep_face(dem):
     """Climbing a 32-degree slope via switchbacks (8-deg track slope).
 
     Track slope is in the uphill sweet spot, but ground slope penalty
-    should noticeably reduce the score — skiing a 32-deg face sucks
+    should noticeably reduce the score -- skiing a 32-deg face sucks
     even if your track angle is fine.
     """
-    # 8° skin track on 32° ground
+    # 8 skin track on 32 ground
     steep_face = _make_tour([(8, 15)], ground_slope=32)
     gentle_bowl = _make_tour([(8, 15)], ground_slope=12)
 
-    steep_score = score_tour(steep_face).uphill_quality
-    gentle_score = score_tour(gentle_bowl).uphill_quality
+    steep_score = score_tour(steep_face, dem).uphill_quality
+    gentle_score = score_tour(gentle_bowl, dem).uphill_quality
 
     assert gentle_score > steep_score, "same track slope, steeper ground should score worse"
-    # Ground penalty at 32° is 0.55, so ~94 * 0.55 ≈ 52
+    # Ground penalty at 32 is 0.55, so ~94 * 0.55 = 52
     assert 40 < steep_score < 75
 
 
-def test_one_cliff_band_in_mellow_descent():
+def test_one_cliff_band_in_mellow_descent(dem):
     """Mellow 8-degree descent with one short cliff band at 25 degrees.
 
     Should score noticeably worse than pure mellow, but the cliff band
@@ -484,8 +484,8 @@ def test_one_cliff_band_in_mellow_descent():
     mellow_with_cliff = _make_tour([(-8, 15), (-25, 2), (-8, 10)])
     pure_mellow = _make_tour([(-8, 27)])
 
-    cliff_score = score_tour(mellow_with_cliff).downhill_quality
-    mellow_score = score_tour(pure_mellow).downhill_quality
+    cliff_score = score_tour(mellow_with_cliff, dem).downhill_quality
+    mellow_score = score_tour(pure_mellow, dem).downhill_quality
 
     assert mellow_score > cliff_score
     # The 2 cliff segments (-50 each) drag the 27-segment average
@@ -493,7 +493,7 @@ def test_one_cliff_band_in_mellow_descent():
     assert cliff_score > 65, "short cliff shouldn't ruin a mostly-great tour"
 
 
-def test_bootpack_section_in_skin_track():
+def test_bootpack_section_in_skin_track(dem):
     """A skin track that hits a bootpack section (25+ degrees).
 
     Common in real touring: the approach is fine but you have to
@@ -503,52 +503,52 @@ def test_bootpack_section_in_skin_track():
     with_bootpack = _make_tour([(6, 10), (25, 3), (6, 5)])
     pure_skin = _make_tour([(6, 18)])
 
-    boot_score = score_tour(with_bootpack).uphill_quality
-    skin_score = score_tour(pure_skin).uphill_quality
+    boot_score = score_tour(with_bootpack, dem).uphill_quality
+    skin_score = score_tour(pure_skin, dem).uphill_quality
 
     assert skin_score > boot_score
     # 3 segments around -1.7 should hurt but not annihilate
     assert boot_score > 30
 
 
-def test_sustained_steep_descent_is_terrible():
-    """Long sustained steep descent (18-20 degrees) — scary on XC gear.
+def test_sustained_steep_descent_is_terrible(dem):
+    """Long sustained steep descent (18-20 degrees) -- scary on XC gear.
 
     This should score very poorly for downhill quality.
     A real example: accidentally skiing a black diamond on XC skis.
     """
     points = _make_tour([(-19, 20)], ground_slope=22)
-    score = score_tour(points)
-    # 19° scores about +20 in the updated curve, then gets a mild ground multiplier.
+    score = score_tour(points, dem)
+    # 19 scores about +20 in the updated curve, then gets a mild ground multiplier.
     assert score.downhill_quality < 25
 
 
-def test_out_and_back_symmetry():
+def test_out_and_back_symmetry(dem):
     """An out-and-back tour should score reasonably on both components.
 
-    Climb at 7 degrees, ski down at 7 degrees — both should be
+    Climb at 7 degrees, ski down at 7 degrees -- both should be
     in the sweet spot. The uphill and downhill avgs should match.
     """
     points = _make_tour([(7, 10), (-7, 10)])
-    score = score_tour(points)
+    score = score_tour(points, dem)
 
     assert score.avg_uphill_slope == pytest.approx(7, abs=0.1)
     assert score.avg_downhill_slope == pytest.approx(7, abs=0.1)
     assert score.uphill_quality > 85
-    assert score.downhill_quality > 100  # 7° is near the DH peak
+    assert score.downhill_quality > 100  # 7 is near the DH peak
     assert score.total > 75
 
 
-def test_ridge_traverse_barely_any_vertical():
+def test_ridge_traverse_barely_any_vertical(dem):
     """A ridge traverse: mostly flat with tiny undulations.
 
-    Very little elevation change — should score okay but not exciting.
+    Very little elevation change -- should score okay but not exciting.
     Track slopes alternate between +1 and -1.
     """
     # Alternating tiny ups and downs
     segments = [(-1, 2), (1, 2)] * 5  # 2km of ridge traverse
     points = _make_tour(segments, ground_slope=15)
-    score = score_tour(points)
+    score = score_tour(points, dem)
 
     # Flat terrain gets modest DH and pinned UH at 100 for tiny climbs.
     assert 70 < score.downhill_quality < 90
@@ -556,37 +556,37 @@ def test_ridge_traverse_barely_any_vertical():
     assert score.total > 40
 
 
-def test_avy_terrain_throughout():
+def test_avy_terrain_throughout(dem):
     """Tour entirely on 35-degree avalanche terrain.
 
-    Track slopes are fine (8° down) but the ground under you is
+    Track slopes are fine (8 down) but the ground under you is
     prime avalanche terrain. Should crush the avy score and also
     reduce DH quality via ground penalty.
     """
     points = _make_tour([(-8, 15)], ground_slope=38)
-    score = score_tour(points)
+    score = score_tour(points, dem)
 
     assert score.avy_exposure < 50, "walking through avy terrain all day"
-    # Ground penalty at 38° ≈ 0.38, so DH ≈ 105 * 0.38 ≈ 40
+    # Ground penalty at 38 = 0.38, so DH = 105 * 0.38 = 40
     assert score.downhill_quality < 60
 
 
-def test_gentle_approach_steep_summit():
+def test_gentle_approach_steep_summit(dem):
     """Common pattern: gentle approach, then steep summit push.
 
-    Like skinning to a hut (4° for 3km) then a steep final pitch
-    (14° for 500m). Should score well overall with some penalty
+    Like skinning to a hut (4 for 3km) then a steep final pitch
+    (14 for 500m). Should score well overall with some penalty
     for the steep bit.
     """
     points = _make_tour([(4, 30), (14, 5)])
-    score = score_tour(points)
+    score = score_tour(points, dem)
 
     # 30 gentle segments at 100 and 5 steep around ~60.
     assert score.uphill_quality > 70
 
 
-def test_gps_spike_doesnt_dominate():
-    """A single GPS noise spike (45° for one point) in mellow terrain.
+def test_gps_spike_doesnt_dominate(dem):
+    """A single GPS noise spike (45 for one point) in mellow terrain.
 
     A real GPS glitch. With averages (not max), one bad point in 20
     shouldn't ruin the tour score.
@@ -595,13 +595,13 @@ def test_gps_spike_doesnt_dominate():
     good = [(-7, 19)]
     spike = [(-45, 1)]
     points = _make_tour(good + spike)
-    score = score_tour(points)
+    score = score_tour(points, dem)
 
-    # 19 × ~103 + 1 × (-50) = 1907/20 ≈ 95 — still great
+    # 19 x ~103 + 1 x (-50) = 1907/20 = 95 -- still great
     assert score.downhill_quality > 85
 
 
-def test_pure_traverse_no_up_no_down():
+def test_pure_traverse_no_up_no_down(dem):
     """A pure traverse where track_slope is always near zero.
 
     All points have tiny +/- slopes; these are still classified by sign.
@@ -613,14 +613,14 @@ def test_pure_traverse_no_up_no_down():
             track_slope=0.3 * (1 if i % 2 else -1),
             ground_slope=15,
         ))
-    score = score_tour(points)
+    score = score_tour(points, dem)
 
     assert score.downhill_quality > 70
     assert score.uphill_quality == 100
 
 
-def test_extremely_short_tour():
-    """A tour with exactly 2 points — minimum viable input.
+def test_extremely_short_tour(dem):
+    """A tour with exactly 2 points -- minimum viable input.
 
     Should produce a score without crashing. Only 1 segment
     actually has a slope.
@@ -629,29 +629,29 @@ def test_extremely_short_tour():
         _make_point(distance=0, track_slope=None, ground_slope=10),
         _make_point(distance=50, track_slope=-8, ground_slope=10),
     ]
-    score = score_tour(points)
+    score = score_tour(points, dem)
     # Should work, single downhill segment
     assert score.downhill_quality > 90
     assert score.total > 0
 
 
-def test_steep_ground_flat_track():
-    """Traversing steep (30°) ground at a near-flat track angle.
+def test_steep_ground_flat_track(dem):
+    """Traversing steep (30) ground at a near-flat track angle.
 
     The track barely goes up or down but the ground is scary steep.
     DH/UH will be sparse (few classified segments), but any that
     do register should be penalized by ground slope.
     """
     points = _make_tour([(-2, 10)], ground_slope=30)
-    score = score_tour(points)
-    # 2° DH on 30° ground: base score 75, penalty 0.7 → 52.5
+    score = score_tour(points, dem)
+    # 2 DH on 30 ground: base score 75, penalty 0.7 -> 52.5
     assert score.downhill_quality < 60
 
 
-def test_variable_ground_slope():
+def test_variable_ground_slope(dem):
     """Tour where ground slope varies wildly per point.
 
-    Some points on flat meadow (5°), some on steep face (35°).
+    Some points on flat meadow (5), some on steep face (35).
     The ground penalty should apply per-segment, not as an average.
     """
     points = [_make_point(distance=0, track_slope=None, ground_slope=5)]
@@ -662,10 +662,10 @@ def test_variable_ground_slope():
             track_slope=-7,
             ground_slope=gs,
         ))
-    score = score_tour(points)
+    score = score_tour(points, dem)
 
     # 5 segments: ~103 * 1.0 = 103, 5 segments: ~103 * 0.5 = 52
-    # Average ≈ 77.5
+    # Average = 77.5
     assert 70 < score.downhill_quality < 90
 
 
@@ -681,15 +681,15 @@ def test_avy_slope_dangers_matches_scalar():
             f"slope={s}: batch={batch[i]}, scalar={expected}")
 
 
-def test_compute_runout_exposures_matches_scalar():
+def test_compute_runout_exposures_matches_scalar(dem):
     """Vectorized _compute_runout_exposures should closely match scalar version."""
     lats = np.array([45.350, 45.351, 45.352])
     lons = np.array([-121.710, -121.711, -121.712])
 
-    batch = _compute_runout_exposures(lats, lons)
+    batch = _compute_runout_exposures(lats, lons, dem)
 
     for i in range(len(lats)):
-        scalar = _compute_runout_exposure(float(lats[i]), float(lons[i]))
+        scalar = _compute_runout_exposure(float(lats[i]), float(lons[i]), dem)
         assert batch[i] == pytest.approx(scalar, abs=0.05), (
             f"Point {i}: batch={batch[i]}, scalar={scalar}")
 
@@ -762,9 +762,12 @@ def test_fuzz_avy_dangers_matches_scalar(slopes):
     ),
     ground_slope=st.floats(min_value=0, max_value=50, allow_nan=False, allow_infinity=False),
 )
-@settings(max_examples=50)
+@settings(max_examples=50, deadline=None)
 def test_fuzz_score_tour_total_bounded(track_slopes, ground_slope):
     """Total score should always be clamped to [0, 100] for any input."""
+    # Load DEM inside function since hypothesis @given doesn't support fixtures.
+    # load_dem_for_bounds caches internally, so this is fast after first call.
+    dem = load_dem_for_bounds(44.9, 45.5, -121.9, -121.4, padding=0.02)
     points = [_make_point(distance=0, track_slope=None, ground_slope=ground_slope)]
     for i, ts in enumerate(track_slopes):
         points.append(_make_point(
@@ -772,5 +775,5 @@ def test_fuzz_score_tour_total_bounded(track_slopes, ground_slope):
             track_slope=ts,
             ground_slope=ground_slope,
         ))
-    score = score_tour(points)
+    score = score_tour(points, dem)
     assert 0 <= score.total <= 100, f"total={score.total}"

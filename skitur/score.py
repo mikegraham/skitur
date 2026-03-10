@@ -11,8 +11,7 @@ import numpy as np
 
 from skitur.analyze import TrackPoint
 from skitur.geo import METERS_PER_DEG_LAT
-from skitur import terrain as terrain_mod
-from skitur.terrain import get_elevation, get_elevations, get_horn_gradients_fast
+from skitur.terrain import Terrain
 
 CurvePoints = tuple[tuple[float, float], ...]
 
@@ -136,7 +135,7 @@ def _avy_slope_dangers(slopes: np.ndarray) -> np.ndarray:
     return _avy_slope_penalties(slopes)
 
 
-def _compute_runout_exposure(lat: float, lon: float) -> float:
+def _compute_runout_exposure(lat: float, lon: float, dem: Terrain) -> float:
     """Compute avalanche exposure from terrain above (0-1 scale).
 
     Traces uphill along local DEM gradient direction until ridge/flat terrain.
@@ -144,12 +143,12 @@ def _compute_runout_exposure(lat: float, lon: float) -> float:
     """
     exposure = 0.0
     curr_lat, curr_lon = lat, lon
-    prev_elev = get_elevation(lat, lon)
+    prev_elev = dem.get_elevation(lat, lon)
 
     if prev_elev is None:
         return 0.0
 
-    curr_dx, curr_dy, curr_invalid = terrain_mod._horn_gradients(  # pylint: disable=protected-access
+    curr_dx, curr_dy, curr_invalid = dem.horn_gradients(
         np.array([curr_lat], dtype=float),
         np.array([curr_lon], dtype=float),
     )
@@ -176,11 +175,11 @@ def _compute_runout_exposure(lat: float, lon: float) -> float:
         step_north_m = AVY_TRACE_STEP_M * (north / grad_norm)
         next_lat = curr_lat + (step_north_m / METERS_PER_DEG_LAT)
         next_lon = curr_lon + (step_east_m / lon_scale)
-        next_elev = get_elevation(next_lat, next_lon)
+        next_elev = dem.get_elevation(next_lat, next_lon)
         if next_elev is None or next_elev <= prev_elev:
             break
 
-        next_dx, next_dy, next_invalid = terrain_mod._horn_gradients(  # pylint: disable=protected-access
+        next_dx, next_dy, next_invalid = dem.horn_gradients(
             np.array([next_lat], dtype=float),
             np.array([next_lon], dtype=float),
         )
@@ -201,14 +200,15 @@ def _compute_runout_exposure(lat: float, lon: float) -> float:
 
 # TODO: When we revisit performance, move this loop to a compiled kernel
 # (Numba/Cython) while keeping the same gradient-following behavior.
-def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
+def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray,
+                               dem: Terrain) -> np.ndarray:
     """Batch runout exposure by following DEM gradient ascent for all points."""
     n = len(lats)
     exposure = np.zeros(n)
 
     curr_lats = lats.copy()
     curr_lons = lons.copy()
-    prev_elevs = get_elevations(lats, lons)
+    prev_elevs = dem.get_elevations(lats, lons)
 
     # Points with no elevation data get zero exposure.
     active = ~np.isnan(prev_elevs)
@@ -224,7 +224,7 @@ def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
 
         need_grad_idx = idx[~grad_ready[idx]]
         if need_grad_idx.size:
-            dx, dy, invalid = get_horn_gradients_fast(
+            dx, dy, invalid = dem.horn_gradients(
                 curr_lats[need_grad_idx],
                 curr_lons[need_grad_idx],
             )
@@ -266,7 +266,7 @@ def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
         step_north_m = AVY_TRACE_STEP_M * (m_north / m_norm)
         next_lats = m_lats + (step_north_m / METERS_PER_DEG_LAT)
         next_lons = m_lons + (step_east_m / m_lon_scale)
-        next_elevs = get_elevations(next_lats, next_lons)
+        next_elevs = dem.get_elevations(next_lats, next_lons)
 
         have_next = ~np.isnan(next_elevs)
         going_up = have_next & (next_elevs > m_prev)
@@ -283,7 +283,7 @@ def _compute_runout_exposures(lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
         up_lats = next_lats[going_up]
         up_lons = next_lons[going_up]
         up_elevs = next_elevs[going_up]
-        next_dx, next_dy, next_invalid = get_horn_gradients_fast(
+        next_dx, next_dy, next_invalid = dem.horn_gradients(
             up_lats,
             up_lons,
         )
@@ -327,7 +327,7 @@ class TourScore:
     avg_uphill_slope: float
 
 
-def score_tour(points: list[TrackPoint]) -> TourScore:
+def score_tour(points: list[TrackPoint], dem: Terrain) -> TourScore:
     """Score an XC ski tour for quality.
 
     Returns a TourScore with total 0-100 (higher = better tour).
@@ -394,6 +394,7 @@ def score_tour(points: list[TrackPoint]) -> TourScore:
         avy_runout_penalty = _compute_runout_exposures(
             lats[avy_indices],
             lons[avy_indices],
+            dem,
         )
     else:
         avy_runout_penalty = np.empty(0, dtype=float)

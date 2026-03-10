@@ -9,7 +9,7 @@ import random
 from dataclasses import dataclass
 
 from skitur.geo import equirectangular_distance, METERS_PER_DEG_LAT
-from skitur.terrain import get_elevation, get_ground_slope, load_dem_for_bounds
+from skitur.terrain import Terrain, load_dem_for_bounds
 from skitur.score import _avy_slope_penalty, _downhill_segment_score, _uphill_segment_score
 
 # Optimization parameters
@@ -36,7 +36,8 @@ class OptimizationResult:
     iterations: int                    # Number of iterations run
 
 
-def _segment_cost(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+def _segment_cost(lat1: float, lon1: float, lat2: float, lon2: float,
+                  dem: Terrain) -> float:
     """Compute cost for traveling between two points.
 
     Lower cost = better route. Combines:
@@ -44,8 +45,8 @@ def _segment_cost(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     - Avalanche penalty (avoid 30-45 degree terrain)
     - Distance (shorter is better, but not dominant)
     """
-    elev1 = get_elevation(lat1, lon1)
-    elev2 = get_elevation(lat2, lon2)
+    elev1 = dem.get_elevation(lat1, lon1)
+    elev2 = dem.get_elevation(lat2, lon2)
 
     if elev1 is None or elev2 is None:
         return 1000.0  # Penalty for missing data
@@ -68,7 +69,7 @@ def _segment_cost(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     # Avalanche cost at midpoint
     mid_lat = (lat1 + lat2) / 2
     mid_lon = (lon1 + lon2) / 2
-    ground_slope = get_ground_slope(mid_lat, mid_lon)
+    ground_slope = dem.get_ground_slope(mid_lat, mid_lon)
     avy_cost = _avy_slope_penalty(ground_slope) if ground_slope else 0.0
 
     # Distance cost (normalized, minor factor)
@@ -82,7 +83,7 @@ def _segment_cost(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     )
 
 
-def _route_cost(points: list[tuple[float, float]]) -> float:
+def _route_cost(points: list[tuple[float, float]], dem: Terrain) -> float:
     """Compute total cost for a route."""
     if len(points) < 2:
         return 0.0
@@ -91,7 +92,7 @@ def _route_cost(points: list[tuple[float, float]]) -> float:
     for i in range(len(points) - 1):
         lat1, lon1 = points[i]
         lat2, lon2 = points[i + 1]
-        total += _segment_cost(lat1, lon1, lat2, lon2)
+        total += _segment_cost(lat1, lon1, lat2, lon2, dem)
 
     return total
 
@@ -142,6 +143,7 @@ def _optimize_point(
     idx: int,
     points: list[tuple[float, float]],
     required_indices: set[int],
+    dem: Terrain,
 ) -> tuple[float, float]:
     """Find the best position for a single point using local search."""
     if idx in required_indices:
@@ -156,8 +158,8 @@ def _optimize_point(
 
     # Current cost for segments involving this point
     current_cost = (
-        _segment_cost(prev_point[0], prev_point[1], current[0], current[1]) +
-        _segment_cost(current[0], current[1], next_point[0], next_point[1])
+        _segment_cost(prev_point[0], prev_point[1], current[0], current[1], dem) +
+        _segment_cost(current[0], current[1], next_point[0], next_point[1], dem)
     )
 
     best_pos = current
@@ -166,8 +168,8 @@ def _optimize_point(
     # Try neighbors
     for neighbor in _get_neighbors(current[0], current[1]):
         cost = (
-            _segment_cost(prev_point[0], prev_point[1], neighbor[0], neighbor[1]) +
-            _segment_cost(neighbor[0], neighbor[1], next_point[0], next_point[1])
+            _segment_cost(prev_point[0], prev_point[1], neighbor[0], neighbor[1], dem) +
+            _segment_cost(neighbor[0], neighbor[1], next_point[0], next_point[1], dem)
         )
         if cost < best_cost:
             best_cost = cost
@@ -195,7 +197,7 @@ def optimize_route(
     # Load DEM for the area
     lats = [w.lat for w in waypoints]
     lons = [w.lon for w in waypoints]
-    load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
+    dem = load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
 
     # Build initial route by interpolating between waypoints
     points: list[tuple[float, float]] = []
@@ -213,7 +215,7 @@ def optimize_route(
         if wp.required:
             required_indices.add(len(points) - 1)
 
-    print(f"Initial route: {len(points)} points, cost={_route_cost(points):.2f}")
+    print(f"Initial route: {len(points)} points, cost={_route_cost(points, dem):.2f}")
 
     # Optimization loop
     for iteration in range(num_iterations):
@@ -228,14 +230,14 @@ def optimize_route(
                 continue
 
             old_pos = points[idx]
-            new_pos = _optimize_point(idx, points, required_indices)
+            new_pos = _optimize_point(idx, points, required_indices, dem)
 
             if new_pos != old_pos:
                 points[idx] = new_pos
                 improved = True
 
         if iteration % 10 == 0 or iteration == num_iterations - 1:
-            cost = _route_cost(points)
+            cost = _route_cost(points, dem)
             print(f"  Iteration {iteration + 1}: cost={cost:.2f}")
 
         # Early termination if no improvement
@@ -243,7 +245,7 @@ def optimize_route(
             print(f"  Converged at iteration {iteration + 1}")
             break
 
-    final_cost = _route_cost(points)
+    final_cost = _route_cost(points, dem)
 
     return OptimizationResult(
         route=points,

@@ -7,15 +7,22 @@ import pytest
 from skitur.analyze import TrackPoint, analyze_track
 from skitur.gpx import load_track
 from skitur.stats import compute_stats
+from skitur.terrain import load_dem_for_bounds
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
 pytestmark = pytest.mark.enable_socket
 
 
-def test_compute_stats():
+@pytest.fixture(scope="module")
+def dem():
+    """Load DEM covering the hood_descent test GPX."""
+    return load_dem_for_bounds(45.30, 45.40, -121.75, -121.65, padding=0.01)
+
+
+def test_compute_stats(dem):
     """Stats should reflect known properties of the descent route."""
     points = load_track(TEST_GPX)
-    analysis = analyze_track(points, resample=False)
+    analysis = analyze_track(points, dem, resample=False)
     stats = compute_stats(analysis)
 
     assert stats['total_distance_m'] > 4000

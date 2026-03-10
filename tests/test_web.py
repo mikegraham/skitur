@@ -38,11 +38,11 @@ def analysis_data():
     raw = load_track(TEST_GPX)
     lats = [p[0] for p in raw]
     lons = [p[1] for p in raw]
-    load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
-    points = analyze_track(raw)
+    dem = load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
+    points = analyze_track(raw, dem=dem)
     stats = compute_stats(points)
-    score = score_tour(points)
-    grids = compute_map_grids(points, padding=0.01, resolution=50)
+    score = score_tour(points, dem)
+    grids = compute_map_grids(dem, points, padding=0.01, resolution=50)
     return _build_response(points, stats, score, grids)
 
 
@@ -378,11 +378,11 @@ def twin_lakes_data():
     raw = load_track(TWIN_LAKES_GPX)
     lats = [p[0] for p in raw]
     lons = [p[1] for p in raw]
-    load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
-    points = analyze_track(raw)
+    dem = load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
+    points = analyze_track(raw, dem=dem)
     stats = compute_stats(points)
-    score = score_tour(points)
-    grids = compute_map_grids(points, padding=0.01, resolution=50)
+    score = score_tour(points, dem)
+    grids = compute_map_grids(dem, points, padding=0.01, resolution=50)
     return _build_response(points, stats, score, grids)
 
 

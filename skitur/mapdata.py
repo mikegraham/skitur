@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from skitur.analyze import TrackPoint
-from skitur.terrain import get_elevation_grid, get_slope_grid, load_dem_for_bounds
+from skitur.terrain import Terrain, load_dem_for_bounds
 
 M_TO_FT = 3.28084
 
@@ -27,11 +27,11 @@ def choose_contour_steps_ft(elev_ft_min: float, elev_ft_max: float) -> tuple[int
 
 
 def _sample_elevation_grid(
+    dem: Terrain,
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, resolution: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Sample elevation data for a region. Returns meshes and elevation grid in feet."""
-    load_dem_for_bounds(lat_min, lat_max, lon_min, lon_max)
-    lon_mesh, lat_mesh, elev_grid = get_elevation_grid(
+    lon_mesh, lat_mesh, elev_grid = dem.get_elevation_grid(
         lat_min, lat_max, lon_min, lon_max, resolution
     )
     elev_grid_ft = np.where(np.isnan(elev_grid), np.nan, elev_grid * M_TO_FT)
@@ -39,16 +39,18 @@ def _sample_elevation_grid(
 
 
 def _sample_slope_grid(
+    dem: Terrain,
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, resolution: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Sample ground slope data for a region."""
-    lon_mesh, lat_mesh, slope_grid = get_slope_grid(
+    lon_mesh, lat_mesh, slope_grid = dem.get_slope_grid(
         lat_min, lat_max, lon_min, lon_max, resolution
     )
     return lon_mesh, lat_mesh, slope_grid
 
 
 def compute_map_grids(
+    dem: Terrain,
     points: list[TrackPoint],
     padding: float = 0.003,
     resolution: int = 400,
@@ -68,10 +70,10 @@ def compute_map_grids(
         lon_min, lon_max = min(lons) - padding, max(lons) + padding
 
     contour_lon_mesh, contour_lat_mesh, contour_elev_grid_ft = _sample_elevation_grid(
-        lat_min, lat_max, lon_min, lon_max, contour_resolution
+        dem, lat_min, lat_max, lon_min, lon_max, contour_resolution
     )
     lon_mesh, lat_mesh, slope_grid = _sample_slope_grid(
-        lat_min, lat_max, lon_min, lon_max, resolution
+        dem, lat_min, lat_max, lon_min, lon_max, resolution
     )
 
     return {
