@@ -11,6 +11,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from skitur.score import (
+    _build_curve,
     _downhill_segment_score,
     _uphill_segment_score,
     _ground_slope_penalty,
@@ -49,6 +50,16 @@ def _make_point(lat=45.0, lon=-121.0, elevation=2000, distance=0,
 
 
 # -- Downhill scoring: exact breakpoints --
+
+def test_build_curve_rejects_single_point():
+    with pytest.raises(ValueError, match="at least two points"):
+        _build_curve(((0, 0),))
+
+
+def test_build_curve_rejects_non_increasing_x():
+    with pytest.raises(ValueError, match="strictly increasing"):
+        _build_curve(((0, 0), (5, 10), (5, 20)))
+
 
 def test_downhill_sweet_spot():
     """6-8 degrees is the peak plateau of downhill fun."""

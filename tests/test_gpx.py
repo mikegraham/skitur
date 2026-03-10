@@ -1,9 +1,10 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 
+from skitur.analyze import TrackPoint, analyze_track
 from skitur.gpx import load_track
-from skitur.analyze import analyze_track
 from skitur.terrain import load_dem_for_bounds
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
@@ -73,3 +74,45 @@ def test_analyze_all_points_have_ground_slope(dem):
     analysis = analyze_track(points, dem, resample=False)
     for pt in analysis:
         assert pt.ground_slope is not None
+
+
+class _VoidTerrain:
+    """Terrain stub that returns NaN for some elevations (simulates DEM voids)."""
+
+    cell_size = 10.0
+
+    def get_elevations(self, lats, lons):
+        elevs = np.full(len(lats), 2000.0)
+        # Make the middle point a void
+        elevs[len(elevs) // 2] = np.nan
+        return elevs
+
+    def get_ground_slopes(self, lats, lons):
+        return np.full(len(lats), 10.0)
+
+    def get_ground_aspects(self, lats, lons):
+        return np.full(len(lats), 180.0)
+
+    def horn_gradients(self, lats, lons):
+        n = len(lats)
+        return np.zeros(n), np.zeros(n), np.zeros(n, dtype=bool)
+
+
+def test_analyze_track_with_dem_void():
+    """Points where the DEM has no data should get elevation=None and track_slope=None."""
+    points = [
+        (45.37, -121.70),
+        (45.371, -121.70),
+        (45.372, -121.70),
+        (45.373, -121.70),
+        (45.374, -121.70),
+    ]
+    analysis = analyze_track(points, _VoidTerrain(), resample=False)
+    mid = len(analysis) // 2
+
+    # The void point should have elevation=None
+    assert analysis[mid].elevation is None
+
+    # Non-void points should have real elevations
+    assert analysis[0].elevation is not None
+    assert analysis[-1].elevation is not None
