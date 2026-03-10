@@ -11,7 +11,7 @@
 - [012](WONTFIX/012-more-scoring-categories.md) ~~Think up more scoring categories~~ WONTFIX
 - [013](FIXED/013-ground-colormap-orange-zone.md) ~~Ground colormap needs orange zone~~ FIXED
 - [014](FIXED/014-track-cmap-to-20-degrees.md) ~~Track angle colormap extend to 20 degrees~~ FIXED
-- [015](015-code-duplication-refactor.md) Refactor shared code between matplotlib and web versions
+- [015](WONTFIX/015-code-duplication-refactor.md) ~~Refactor shared code between matplotlib and web versions~~ OBSOLETE
 - [016](016-brainstorm-plots.md) Brainstorm and add useful plots
 - [041](FIXED/041-remove-distribution-legend.md) ~~Remove Uphill/Downhill Legend~~ FIXED
 - [053](053-concurrent-analysis.md) Improve analysis latency via concurrency
