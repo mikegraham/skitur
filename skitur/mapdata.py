@@ -13,16 +13,14 @@ M_TO_FT = 3.28084
 
 
 def choose_contour_steps_ft(elev_ft_min: float, elev_ft_max: float) -> tuple[int, int]:
-    """Pick standard U.S. contour steps from relief."""
+    """Pick standard U.S. contour steps from relief, preferring 40ft minor."""
     relief = max(0.0, float(elev_ft_max) - float(elev_ft_min))
     if relief > 5000:
         minor = 80
-    elif relief > 700:
+    elif relief > 200:
         minor = 40
-    elif relief > 250:
-        minor = 20
     else:
-        minor = 10
+        minor = 20
     return minor, minor * 5
 
 
