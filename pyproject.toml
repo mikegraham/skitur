@@ -10,6 +10,7 @@ dependencies = [
     "flask",
     "lxml",
     "numpy",
+    "opencv-python-headless",
     "orjson",
     "rasterio",
     "scipy",
@@ -19,6 +20,8 @@ dependencies = [
 dev = [
     # Keep for parser parity tests only; runtime uses faster lxml-based parsing.
     "gpxpy",
+    "hypothesis",
+    "playwright",
     "pytest",
     "pytest-cov",
     "pytest-ruff",
@@ -72,6 +75,12 @@ select = ["E", "F", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
+
+[tool.deptry]
+exclude = ["scripts", "verify_refactor\\.py", "time_refactor\\.py", "profile_old\\.py", "upstream", "\\.venv", "_refactor_baseline"]
+
+[tool.deptry.per_rule_ignores]
+DEP002 = ["gpxpy", "pytest", "pytest-cov", "pytest-ruff", "pytest-randomly", "pytest-mypy", "pytest-socket", "ruff", "mypy", "matplotlib", "deptry"]
 
 [tool.mypy]
 python_version = "3.12"
