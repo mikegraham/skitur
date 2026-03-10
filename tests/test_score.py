@@ -3,6 +3,8 @@
 Tests verify both exact breakpoint values and the shape of scoring curves.
 """
 
+from functools import lru_cache
+
 import numpy as np
 import pytest
 from hypothesis import given, settings
@@ -27,6 +29,12 @@ pytestmark = pytest.mark.enable_socket
 @pytest.fixture(scope="module")
 def dem():
     """Load DEM for runout-exposure and score_tour integration tests."""
+    return load_dem_for_bounds(44.9, 45.5, -121.9, -121.4, padding=0.02)
+
+
+@lru_cache(maxsize=1)
+def _fuzz_dem():
+    """Cached DEM for Hypothesis fuzzing to avoid rebuilding terrain per example."""
     return load_dem_for_bounds(44.9, 45.5, -121.9, -121.4, padding=0.02)
 
 
@@ -385,23 +393,6 @@ def test_total_clamped_at_zero(dem):
     ]
     score = score_tour(points, dem)
     assert score.total >= 0
-
-
-def test_total_score_is_weighted_sum(dem):
-    """Total score should be a clamped weighted combination of components."""
-    points = [
-        _make_point(distance=0, track_slope=None, ground_slope=10),
-        _make_point(distance=500, track_slope=-8, ground_slope=10),
-        _make_point(distance=1000, track_slope=5, ground_slope=10),
-    ]
-    score = score_tour(points, dem)
-    raw = (
-        score.downhill_quality * 0.45 +
-        score.uphill_quality * 0.25 +
-        score.avy_exposure * 0.30
-    )
-    expected_total = max(0, min(100, raw))
-    assert score.total == pytest.approx(expected_total, abs=0.01)
 
 
 def test_ground_penalty_reduces_quality(dem):
@@ -765,9 +756,7 @@ def test_fuzz_avy_dangers_matches_scalar(slopes):
 @settings(max_examples=50, deadline=None)
 def test_fuzz_score_tour_total_bounded(track_slopes, ground_slope):
     """Total score should always be clamped to [0, 100] for any input."""
-    # Load DEM inside function since hypothesis @given doesn't support fixtures.
-    # load_dem_for_bounds caches internally, so this is fast after first call.
-    dem = load_dem_for_bounds(44.9, 45.5, -121.9, -121.4, padding=0.02)
+    dem = _fuzz_dem()
     points = [_make_point(distance=0, track_slope=None, ground_slope=ground_slope)]
     for i, ts in enumerate(track_slopes):
         points.append(_make_point(

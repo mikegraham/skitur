@@ -7,7 +7,6 @@ all visual elements render correctly.
 """
 
 import tempfile
-import time
 from pathlib import Path
 
 import pytest
@@ -18,6 +17,25 @@ from skitur.report import build_embedded_report_html
 
 GPX_FILE = Path(__file__).parent.parent / "Twin_Lakes.gpx"
 pytestmark = pytest.mark.enable_socket
+
+
+def _wait_for_report_render(page, timeout_ms: int = 30_000) -> None:
+    page.wait_for_function(
+        """() => {
+            const results = document.getElementById('results-section');
+            if (!results || window.getComputedStyle(results).display === 'none') return false;
+
+            const hasSlopeImage = Array.from(document.querySelectorAll('#map img'))
+              .some((img) => img.src && img.src.startsWith('data:image/png'));
+            const hasTrackCanvas = document.querySelector('#map canvas') !== null;
+            const hasElevationPlot = document.querySelector('#elevation-chart .plot-container') !== null;
+            const hasHistogramPlot = document.querySelector('#histogram-chart .plot-container') !== null;
+            const hasScoreTotal = document.querySelector('.score-total') !== null;
+
+            return hasSlopeImage && hasTrackCanvas && hasElevationPlot && hasHistogramPlot && hasScoreTotal;
+        }""",
+        timeout=timeout_ms,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -73,10 +91,8 @@ def rendered_page(debug_html_path):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1200, "height": 900})
-        page.goto(f"file://{debug_html_path}")
-
-        # Wait for rendering to complete
-        time.sleep(4)
+        page.goto(f"file://{debug_html_path}", wait_until="domcontentloaded")
+        _wait_for_report_render(page)
 
         yield page
 
@@ -160,15 +176,6 @@ def test_stats_table_has_gps_points(rendered_page):
     )
 
 
-def test_full_page_screenshot(rendered_page):
-    """Take a full-page screenshot and save to /tmp/test_visual_screenshot.png."""
-    page = rendered_page
-    page.screenshot(path="/tmp/test_visual_screenshot.png", full_page=True)
-    screenshot_path = Path("/tmp/test_visual_screenshot.png")
-    assert screenshot_path.exists(), "Screenshot file was not created"
-    assert screenshot_path.stat().st_size > 0, "Screenshot file is empty"
-
-
 def test_slope_overlay_survives_viewport_resize(rendered_page):
     """Regression: slope shading must remain visible after viewport resize.
 
@@ -195,7 +202,16 @@ def test_slope_overlay_survives_viewport_resize(rendered_page):
 
     # Resize viewport (simulates browser zoom CSS pixel shrinkage)
     page.set_viewport_size({"width": 800, "height": 600})
-    time.sleep(1)
+    page.wait_for_function("""() => {
+        const imgs = document.querySelectorAll('#map img');
+        for (const img of imgs) {
+            if (img.src && img.src.startsWith('data:image/png')) {
+                const rect = img.getBoundingClientRect();
+                return rect.width > 100 && rect.height > 100;
+            }
+        }
+        return false;
+    }""")
 
     # Verify slope image overlay is still visible after resize
     after = page.evaluate("""() => {

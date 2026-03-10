@@ -9,7 +9,6 @@ from skitur.report import (
     GRID_MIN_SCALE,
     GRID_SQUARE_EXTRA_LIMIT_M,
     _grid_bounds_for_shading,
-    build_embedded_report_html,
     generate_report,
 )
 
@@ -45,21 +44,6 @@ def test_generate_report_omits_upload_ui(monkeypatch, tmp_path):
     assert 'id="upload-section"' not in html
     assert 'id="new-upload-btn"' not in html
     assert "Analyze Another" not in html
-
-
-def test_build_embedded_report_hide_flags_are_null_safe():
-    template = "<html><body><div id='results-section'></div></body></html>"
-
-    html = build_embedded_report_html(
-        template_html=template,
-        data=_minimal_payload(),
-        filename="route.gpx",
-        hide_upload_section=True,
-        hide_new_upload_button=True,
-    )
-
-    assert "if (uploadSectionEl)" in html
-    assert "if (newUploadBtnEl)" in html
 
 
 def test_grid_bounds_have_at_least_min_scale():

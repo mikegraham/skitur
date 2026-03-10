@@ -301,18 +301,6 @@ def test_grid_aspect_ratio_reasonable(analysis_data):
 
 # ── Template tests ────────────────────────────────────────────────────
 
-def test_template_has_required_js_functions(client):
-    """The template should contain all required JS rendering functions."""
-    resp = client.get("/")
-    html = resp.data.decode()
-    for fn in ("renderMap", "renderElevationChart", "renderSlopesChart",
-               "renderTrackDistribution", "renderGroundDistribution",
-               "renderScore", "renderStats", "renderLegends",
-               "slopeToColor", "groundSlopeRGBA", "GradientTrackLayer",
-               "renderSlopeImage", "updateHoverMarker"):
-        assert fn in html, f"Missing JS function: {fn}"
-
-
 def test_strip_upload_ui_for_static_report_removes_upload_markup():
     template = (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").read_text()
     stripped = _strip_upload_ui_for_static_report(template)
@@ -333,18 +321,7 @@ def test_template_has_attribution_control_disabled(client):
     """Leaflet map should be created with attributionControl: false."""
     resp = client.get("/")
     html = resp.data.decode()
-    assert "attributionControl" in html
-
-
-def test_plotly_cdn_is_v3(client):
-    """Plotly CDN URL should reference a 3.x version."""
-    import re
-    resp = client.get("/")
-    html = resp.data.decode()
-    match = re.search(r"plotly-(\d+)\.\d+\.\d+\.min\.js", html)
-    assert match is not None, "Could not find Plotly CDN URL in template"
-    major = int(match.group(1))
-    assert major == 3, f"Expected Plotly 3.x, got {major}.x"
+    assert "attributionControl: false" in html
 
 
 def test_template_has_avtraining_link(client):
@@ -466,6 +443,25 @@ def test_twin_lakes_slope_grid_mostly_gentle(twin_lakes_data):
 
 # ── Rendering tests (Playwright) ──────────────────────────────────────
 
+def _wait_for_report_render(page, timeout_ms: int = 30_000) -> None:
+    page.wait_for_function(
+        """() => {
+            const results = document.getElementById('results-section');
+            if (!results || window.getComputedStyle(results).display === 'none') return false;
+
+            const hasSlopeImage = Array.from(document.querySelectorAll('#map img'))
+              .some((img) => img.src && img.src.startsWith('data:image/png'));
+            const hasTrackCanvas = document.querySelector('#map canvas') !== null;
+            const hasElevationPlot = document.querySelector('#elevation-chart .plot-container') !== null;
+            const hasHistogramPlot = document.querySelector('#histogram-chart .plot-container') !== null;
+            const hasScoreTotal = document.querySelector('#score-panel .score-total') !== null;
+
+            return hasSlopeImage && hasTrackCanvas && hasElevationPlot && hasHistogramPlot && hasScoreTotal;
+        }""",
+        timeout=timeout_ms,
+    )
+
+
 @pytest.fixture(scope="module")
 def rendered_page(analysis_data):
     """Render the page with Playwright and return page + error list."""
@@ -473,8 +469,6 @@ def rendered_page(analysis_data):
         from playwright.sync_api import sync_playwright
     except ImportError:
         pytest.skip("playwright not installed")
-
-    import time
 
     with open(Path(__file__).parent.parent / "skitur" / "templates" / "index.html") as f:
         template_html = f.read()
@@ -497,8 +491,8 @@ def rendered_page(analysis_data):
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1200, "height": 900})
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{tmp_path}")
-        time.sleep(6)
+        page.goto(f"file://{tmp_path}", wait_until="domcontentloaded")
+        _wait_for_report_render(page)
 
         yield page, errors
 

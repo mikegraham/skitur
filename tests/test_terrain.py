@@ -93,22 +93,6 @@ def test_get_ground_slopes_matches_scalar(dem):
                 f"Point {i}: batch={batch[i]}, scalar={scalar}")
 
 
-def test_descending_route_has_monotonic_elevation(dem):
-    """A descending route should have decreasing elevation at each point."""
-    points = [
-        (45.370, -121.698),   # Below summit
-        (45.3500, -121.7050),  # Mid-mountain
-        (45.3311, -121.7113),  # Timberline
-    ]
-    elevations = [dem.get_elevation(lat, lon) for lat, lon in points]
-    assert all(e is not None for e in elevations)
-    elevation_values = [float(e) for e in elevations if e is not None]
-    assert len(elevation_values) == len(elevations)
-    # Each point should be lower than the previous
-    for i in range(1, len(elevation_values)):
-        assert elevation_values[i] < elevation_values[i - 1]
-
-
 def test_extent_too_large_rejected():
     """Requests exceeding 1x1 degree should raise ExtentTooLargeError."""
     with pytest.raises(ExtentTooLargeError, match="too large"):

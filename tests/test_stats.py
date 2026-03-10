@@ -20,16 +20,18 @@ def dem():
 
 
 def test_compute_stats(dem):
-    """Stats should reflect known properties of the descent route."""
+    """Stats should reflect known properties of the Hood descent route."""
     points = load_track(TEST_GPX)
     analysis = analyze_track(points, dem, resample=False)
     stats = compute_stats(analysis)
 
-    assert stats['total_distance_m'] > 4000
-    assert stats['elevation_loss_m'] > 0  # downhill route
+    # Hood descent is ~5km with ~1500m of elevation loss
+    assert 4000 < stats['total_distance_m'] < 8000
+    assert stats['elevation_loss_m'] > 1000
     assert stats['elevation_gain_m'] < stats['elevation_loss_m']
-    assert stats['max_elevation_m'] > stats['min_elevation_m']
-    assert stats['downhill_max'] > stats['downhill_avg'] > 0
+    assert stats['max_elevation_m'] > 2500
+    assert stats['min_elevation_m'] < 2000
+    assert stats['downhill_max'] > stats['downhill_avg'] > 10  # steep descent
 
 
 def test_compute_stats_uphill_only():
