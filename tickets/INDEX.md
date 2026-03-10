@@ -16,8 +16,8 @@
 - [041](FIXED/041-remove-distribution-legend.md) ~~Remove Uphill/Downhill Legend~~ FIXED
 - [053](053-concurrent-analysis.md) Improve analysis latency via concurrency
 - [054](054-default-dem-cache-seed-plan.md) Default DEM cache seeding plan for launch
-- [055](055-contour-line-spacing-standard.md) Standardize contour line spacing (use standard topo intervals)
-- [057](057-mobile-legend-bars-disappear.md) Colormap legend bars disappear below ~700px
+- [055](FIXED/055-contour-line-spacing-standard.md) ~~Standardize contour line spacing (use standard topo intervals)~~ FIXED
+- [057](FIXED/057-mobile-legend-bars-disappear.md) ~~Colormap legend bars disappear below ~700px~~ FIXED
 - [058](058-path-optimization-skiable-safe-routing.md) Path optimization for skiable + safe routing
 - [060](060-static-report-no-upload-ui.md) Static report must not include upload UI
 - [061](061-unify-slope-sampling-accuracy.md) Unify slope sampling pipeline; current version harms accuracy
