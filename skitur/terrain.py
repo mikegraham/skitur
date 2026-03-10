@@ -109,14 +109,19 @@ class Terrain:
 
         # Horn's method on the full grid. Output is 2 cells smaller in each
         # dimension; pad with NaN to keep the same shape/indexing.
+        # East-west cell spacing shrinks with latitude (cos correction).
+        center_lat = float(self.y_coords[len(self.y_coords) // 2])
+        cell_size_x = self.cell_size * math.cos(math.radians(center_lat))
+        cell_size_y = self.cell_size
+
         dz_dx_core = (
             (elev[:-2, 2:] + 2*elev[1:-1, 2:] + elev[2:, 2:]) -
             (elev[:-2, :-2] + 2*elev[1:-1, :-2] + elev[2:, :-2])
-        ) / (8 * self.cell_size)
+        ) / (8 * cell_size_x)
         dz_dy_core = (
             (elev[2:, :-2] + 2*elev[2:, 1:-1] + elev[2:, 2:]) -
             (elev[:-2, :-2] + 2*elev[:-2, 1:-1] + elev[:-2, 2:])
-        ) / (8 * self.cell_size)
+        ) / (8 * cell_size_y)
 
         rows, cols = elev.shape
         self._grad_dz_dx = np.full((rows, cols), np.nan, dtype=np.float32)
