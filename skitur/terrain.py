@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from dem_stitcher import stitch_dem
 
 from skitur.geo import METERS_PER_DEG_LAT
 
@@ -26,27 +27,34 @@ class ExtentTooLargeError(Exception):
 # EPSG:4326 = WGS84 geographic coordinate system (lat/lon)
 CRS_WGS84 = 4326
 
-# Cell size for slope calculations (meters), matching the display resolution
-# we request from each DEM source.
-CELL_SIZE_3DEP = 10.0    # 3DEP provides 10m resolution in US
-CELL_SIZE_GLO30 = 30.0   # Copernicus GLO-30 provides 30m resolution globally
-
 # Persistent tile cache for dem-stitcher (it has no built-in cache)
 _TILE_CACHE_DIR = Path.home() / ".cache" / "skitur" / "dem"
 
 
-def _is_us_coverage(lat: float, lon: float) -> bool:
-    """Check if location is within approximate US 3DEP coverage."""
-    # CONUS: lat 24-50, lon -125 to -66
-    if 24 <= lat <= 50 and -125 <= lon <= -66:
-        return True
-    # Alaska: lat 51-72, lon -180 to -129
-    if 51 <= lat <= 72 and -180 <= lon <= -129:
-        return True
-    # Hawaii: lat 18-23, lon -161 to -154
-    if 18 <= lat <= 23 and -161 <= lon <= -154:
-        return True
-    return False
+@dataclass(frozen=True)
+class _DEMSource:
+    name: str
+    cell_size: float  # meters
+    resolution: float  # degrees per pixel
+
+
+_3DEP = _DEMSource("3dep", cell_size=10.0, resolution=1 / 3600 / 3)
+_GLO30 = _DEMSource("glo_30", cell_size=30.0, resolution=1 / 3600)
+
+# US bounding boxes where 3DEP (10m) is available: (lat_min, lat_max, lon_min, lon_max)
+_US_BOUNDS = [
+    (24, 50, -125, -66),    # CONUS
+    (51, 72, -180, -129),   # Alaska
+    (18, 23, -161, -154),   # Hawaii
+]
+
+
+def _choose_dem_source(lat: float, lon: float) -> _DEMSource:
+    """Pick the best DEM source for a location (3DEP in the US, GLO-30 elsewhere)."""
+    for lat_min, lat_max, lon_min, lon_max in _US_BOUNDS:
+        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+            return _3DEP
+    return _GLO30
 
 
 def _fractional_axis_coords(values: np.ndarray, axis: np.ndarray) -> np.ndarray:
@@ -505,18 +513,9 @@ def load_dem_for_bounds(
     lon_max += padding
 
     with _dem_lock:
-        from dem_stitcher import stitch_dem
         center_lat = (lat_min + lat_max) / 2
         center_lon = (lon_min + lon_max) / 2
-        is_us = _is_us_coverage(center_lat, center_lon)
-        if is_us:
-            dem_name = "3dep"
-            cell_size = CELL_SIZE_3DEP
-            res = 1 / 3600 / 3
-        else:
-            dem_name = "glo_30"
-            cell_size = CELL_SIZE_GLO30
-            res = 1 / 3600
+        source = _choose_dem_source(center_lat, center_lon)
 
         _TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -524,20 +523,20 @@ def load_dem_for_bounds(
         # (from _coords_from_profile) fully cover the requested extent.
         # Without this, the outermost pixel centers fall half a pixel
         # inside the tile edge, causing covers() to fail on repeat calls.
-        fetch_bounds = [lon_min - res, lat_min - res,
-                        lon_max + res, lat_max + res]
+        fetch_bounds = [lon_min - source.resolution, lat_min - source.resolution,
+                        lon_max + source.resolution, lat_max + source.resolution]
 
         logger.info("Fetching DEM (%s) for bounds [%.4f, %.4f, %.4f, %.4f]",
-                     dem_name, *fetch_bounds)
+                     source.name, *fetch_bounds)
 
-        tile_cache = _TILE_CACHE_DIR / dem_name
+        tile_cache = _TILE_CACHE_DIR / source.name
         tile_cache.mkdir(parents=True, exist_ok=True)
         stitch_kwargs = dict(
             bounds=fetch_bounds,
-            dem_name=dem_name,
+            dem_name=source.name,
             dst_ellipsoidal_height=False,  # orthometric heights
             dst_area_or_point="Point",
-            dst_resolution=res,
+            dst_resolution=source.resolution,
             dst_tile_dir=tile_cache,
         )
         data, profile = _stitch_dem_fast(stitch_dem, **stitch_kwargs)
@@ -556,14 +555,15 @@ def load_dem_for_bounds(
             y_coords = y_coords[::-1]
             data = data[::-1, :]
 
-        # Ensure float dtype for scipy.map_coordinates
         if not np.issubdtype(data.dtype, np.floating):
-            data = data.astype(np.float32)
+            raise TypeError(
+                f"DEM data has non-float dtype {data.dtype}; expected float32 or float64"
+            )
 
         terrain = Terrain(
             x_coords=x_coords,
             y_coords=y_coords,
             data=data,
-            cell_size=cell_size,
+            cell_size=source.cell_size,
         )
         return terrain
