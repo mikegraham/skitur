@@ -110,14 +110,12 @@ On gentler ground, uphill/downhill movement keeps full credit. As ground steepne
 
 ### 4) Avalanche exposure rating metric
 
-This is a modeled exposure metric, not a field forecast.
+This is based on the ground slope, not a field forecast. Current conditions aren't used. The metric is approximate.
 
 It combines both:
 
 - the ground you are on: percent of track on 30&deg;-45&deg; ground (30-45 degree ground)
-- the ground above you: uphill tracing from the track location in 64 steps over up to 500 m, or until a ridge is detected
-
-Slope penalties use a full 30-45 band with linear tapers at 26-30 and 45-49.
+- the ground above you: uphill tracing from the track location for 500 m, the ground is monitored for slopes between 30&deg;-45&deg;. This is an extremely rough metric.
 
 ![Ground slope penalty curve](docs/rating_curve_ground_slope_penalty.svg)
 
