@@ -193,153 +193,62 @@ class Terrain:
         invalid = np.isnan(dz_dx) | np.isnan(dz_dy)
         return dz_dx, dz_dy, invalid
 
-    def _horn_gradients_pointwise(self, lats: np.ndarray, lons: np.ndarray,
-                                   cell_size_m: float | None = None
-                                   ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute Horn's method dz/dx, dz/dy gradients for arrays of (lat, lon).
-
-        Per-point 8-neighbor method. Slower than precomputed grids but works
-        for any point set without upfront cost.
-
-        Returns (dz_dx, dz_dy, any_nan).
-        """
-        if cell_size_m is None:
-            cell_size_m = self.cell_size
-
-        # Convert cell size to degrees (use mean latitude for lon scaling)
-        dlat = cell_size_m / METERS_PER_DEG_LAT
-        mean_lat = np.mean(lats) if len(lats) > 0 else 45.0
-        dlon = cell_size_m / (METERS_PER_DEG_LAT * math.cos(math.radians(float(mean_lat))))
-
-        # Build all 8 neighbor coordinate arrays: NW, N, NE, W, E, SW, S, SE
-        offsets = [
-            (+dlat, -dlon),  # NW = a
-            (+dlat,    0.0),  # N  = b
-            (+dlat, +dlon),  # NE = c
-            (  0.0, -dlon),  # W  = d
-            (  0.0, +dlon),  # E  = f
-            (-dlat, -dlon),  # SW = g
-            (-dlat,    0.0),  # S  = h
-            (-dlat, +dlon),  # SE = i
-        ]
-
-        # Stack all neighbor coords into one big array and call get_elevations once
-        n = len(lats)
-        all_lats = np.empty(8 * n)
-        all_lons = np.empty(8 * n)
-        for k, (dy, dx) in enumerate(offsets):
-            all_lats[k*n:(k+1)*n] = lats + dy
-            all_lons[k*n:(k+1)*n] = lons + dx
-
-        all_elevs = self.get_elevations(all_lats, all_lons)
-
-        # Unpack into individual neighbor arrays
-        a = all_elevs[0*n:1*n]  # NW
-        b = all_elevs[1*n:2*n]  # N
-        c = all_elevs[2*n:3*n]  # NE
-        d = all_elevs[3*n:4*n]  # W
-        f = all_elevs[4*n:5*n]  # E
-        g = all_elevs[5*n:6*n]  # SW
-        h = all_elevs[6*n:7*n]  # S
-        i = all_elevs[7*n:8*n]  # SE
-
-        # Horn's method (1981) with Sobel-like weighting
-        dz_dx = ((c + 2*f + i) - (a + 2*d + g)) / (8 * cell_size_m)
-        dz_dy = ((g + 2*h + i) - (a + 2*b + c)) / (8 * cell_size_m)
-
-        # Mask where any neighbor was NaN
-        any_nan = (np.isnan(a) | np.isnan(b) | np.isnan(c) | np.isnan(d) |
-                   np.isnan(f) | np.isnan(g) | np.isnan(h) | np.isnan(i))
-
-        return dz_dx, dz_dy, any_nan
-
     def horn_gradients(self, lats: np.ndarray, lons: np.ndarray
                        ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute Horn's method dz/dx, dz/dy gradients at (lat, lon) points.
+        """Look up Horn's method dz/dx, dz/dy gradients at (lat, lon) points.
 
-        Uses precomputed gradient grids when available (fast path for small DEMs).
-        Falls back to per-point 8-neighbor method for large DEMs where
-        precomputation is too expensive.
+        Always uses precomputed native-resolution gradient grids so that all
+        callers (track analysis, scoring, map rendering) get consistent slope
+        values -- differentiate-then-interpolate, not the reverse.
 
         Returns (dz_dx, dz_dy, invalid).
         """
-        if len(self.x_coords) > 0:
-            # Only use precomputed grids if they're already computed or cheap to compute.
-            # For large DEMs (>10M pixels) the 0.7s+ grid computation isn't worth it
-            # for routes with few points.
-            if self._grad_dz_dx is not None:
-                return self._horn_gradients_grid(lats, lons)
-            if self.data.size <= 10_000_000:
-                return self._horn_gradients_grid(lats, lons)
-        return self._horn_gradients_pointwise(lats, lons)
+        return self._horn_gradients_grid(lats, lons)
 
-    def get_ground_slope(self, lat: float, lon: float,
-                         cell_size_m: float | None = None) -> float | None:
-        """Return terrain slope in degrees at (lat, lon) using Horn's method.
+    def get_ground_slope(self, lat: float, lon: float) -> float | None:
+        """Return terrain slope in degrees at (lat, lon).
 
-        Uses a 3x3 window centered on the query position with Sobel-like weighting.
+        Uses precomputed native-resolution gradient grids (differentiate-then-
+        interpolate) for accuracy. Returns None if gradient data is invalid.
         """
-        if cell_size_m is None:
-            cell_size_m = self.cell_size
-
-        # Convert cell size to degrees
-        dlat = cell_size_m / METERS_PER_DEG_LAT
-        dlon = cell_size_m / (METERS_PER_DEG_LAT * math.cos(math.radians(lat)))
-
-        # Sample 3x3 window
-        a = self.get_elevation(lat + dlat, lon - dlon)  # NW
-        b = self.get_elevation(lat + dlat, lon)          # N
-        c = self.get_elevation(lat + dlat, lon + dlon)  # NE
-        d = self.get_elevation(lat, lon - dlon)          # W
-        f = self.get_elevation(lat, lon + dlon)          # E
-        g = self.get_elevation(lat - dlat, lon - dlon)  # SW
-        h = self.get_elevation(lat - dlat, lon)          # S
-        i = self.get_elevation(lat - dlat, lon + dlon)  # SE
-
-        if None in (a, b, c, d, f, g, h, i):
+        dz_dx, dz_dy, invalid = self.horn_gradients(
+            np.array([lat], dtype=float),
+            np.array([lon], dtype=float),
+        )
+        if invalid[0]:
             return None
-        # mypy can't narrow through `in` checks on tuples
-        assert (a is not None and b is not None and c is not None
-                and d is not None and f is not None
-                and g is not None and h is not None and i is not None)
-
-        # Horn's method (1981) with Sobel-like weighting
-        dz_dx = ((c + 2*f + i) - (a + 2*d + g)) / (8 * cell_size_m)
-        dz_dy = ((g + 2*h + i) - (a + 2*b + c)) / (8 * cell_size_m)
-
-        slope_rad = math.atan(math.hypot(dz_dx, dz_dy))
+        slope_rad = math.atan(math.hypot(float(dz_dx[0]), float(dz_dy[0])))
         return math.degrees(slope_rad)
 
-    def get_ground_slopes(self, lats: np.ndarray, lons: np.ndarray,
-                          cell_size_m: float | None = None) -> np.ndarray:
+    def get_ground_slopes(self, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
         """Return terrain slopes in degrees for arrays of (lat, lon).
 
-        Vectorized Horn's method on scattered points. Returns NaN where data missing.
+        Uses precomputed native-resolution gradient grids (differentiate-then-
+        interpolate) so that track analysis agrees with the rendered slope map.
+        Returns NaN where data is missing.
         """
-        dz_dx, dz_dy, any_nan = self._horn_gradients_pointwise(lats, lons, cell_size_m)
+        dz_dx, dz_dy, invalid = self.horn_gradients(lats, lons)
 
         slope_rad = np.arctan(np.hypot(dz_dx, dz_dy))
         slopes = np.degrees(slope_rad)
-        slopes[any_nan] = np.nan
+        slopes[invalid] = np.nan
 
         return slopes
 
-    def get_ground_aspects(self, lats: np.ndarray, lons: np.ndarray,
-                           cell_size_m: float | None = None) -> np.ndarray:
+    def get_ground_aspects(self, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
         """Return terrain aspect in compass degrees for arrays of (lat, lon).
 
         0=N, 90=E, 180=S, 270=W. Returns NaN where data missing.
-        Uses the same Horn's method gradients as slope computation.
+        Uses the same precomputed gradient grids as slope computation.
         """
-        dz_dx, dz_dy, any_nan = self._horn_gradients_pointwise(lats, lons, cell_size_m)
+        dz_dx, dz_dy, invalid = self.horn_gradients(lats, lons)
 
         # atan2(-dz_dy, dz_dx) gives angle from east, counter-clockwise.
         # Convert to compass bearing: 0=N, 90=E, 180=S, 270=W.
-        # Compass bearing = 90 - math_angle (in degrees), then mod 360.
         math_angle = np.degrees(np.arctan2(-dz_dy, dz_dx))
         aspect = (90.0 - math_angle) % 360.0
 
-        aspect[any_nan] = np.nan
+        aspect[invalid] = np.nan
 
         return aspect
 
