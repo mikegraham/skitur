@@ -211,10 +211,7 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, TourScore
     dem_lon_max = max(lon_max_t + 0.02, grid_bounds[3])
     dem = load_dem_for_bounds(dem_lat_min, dem_lat_max, dem_lon_min, dem_lon_max, padding=0.01)
 
-    slope_resolution = 300
-    native_max = dem.native_max_dimension
-    if native_max is not None:
-        slope_resolution = min(native_max, 800)
+    slope_resolution = min(dem.native_max_dimension, 800)
     contour_resolution = min(slope_resolution, 300)
 
     lat_min, lat_max, lon_min, lon_max = grid_bounds
