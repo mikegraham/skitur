@@ -15,7 +15,7 @@ from playwright.sync_api import sync_playwright
 from skitur.app import app
 from skitur.report import build_embedded_report_html
 
-GPX_FILE = Path(__file__).parent.parent / "Twin_Lakes.gpx"
+GPX_FILE = Path(__file__).parent / "data" / "Twin_Lakes.gpx"
 pytestmark = pytest.mark.enable_socket
 
 
