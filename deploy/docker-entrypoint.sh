@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-CACHE_DIR="$(python -c 'from skitur.config import DEM_CACHE_DIR; print(DEM_CACHE_DIR)')"
+CACHE_DIR="/data/dem"
 SEED_MARKER="$CACHE_DIR/.seeded"
 
 # On first boot with a persistent volume, pre-fetch DEM tiles for
@@ -9,7 +9,7 @@ SEED_MARKER="$CACHE_DIR/.seeded"
 if [ ! -f "$SEED_MARKER" ]; then
     echo "First boot — seeding DEM cache at $CACHE_DIR"
     mkdir -p "$CACHE_DIR"
-    python scripts/preseed_dem_cache.py --download --max-gb 24 || true
+    python scripts/preseed_dem_cache.py --download --max-gb 24 --cache-dir "$CACHE_DIR" || true
     touch "$SEED_MARKER"
     echo "DEM seeding complete"
 fi

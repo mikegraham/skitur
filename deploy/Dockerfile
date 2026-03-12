@@ -10,8 +10,9 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY skitur/ skitur/
+COPY deploy/config/ deploy/config/
 COPY scripts/ scripts/
-COPY docker-entrypoint.sh ./
+COPY deploy/docker-entrypoint.sh ./
 
 RUN pip install --no-cache-dir . gunicorn requests
 
@@ -22,4 +23,4 @@ RUN python -c "from dem_stitcher.datasets import get_global_dem_tile_extents; \
 EXPOSE 8000
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["gunicorn", "skitur.app:app", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120"]
+CMD ["gunicorn", "skitur.app:app", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "600"]

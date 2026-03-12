@@ -200,15 +200,13 @@ def prioritize_tiles(
     return tiles
 
 
-def download_tile(lat_floor: int, lon_floor: int) -> bool:
+def download_tile(lat_floor: int, lon_floor: int, loader) -> bool:
     """Download DEM for a 1x1 degree tile. Returns True on success."""
-    from skitur.terrain import load_dem_for_bounds
-
     source = _tile_source(lat_floor, lon_floor)
 
     try:
         t0 = time.perf_counter()
-        load_dem_for_bounds(
+        loader.load(
             float(lat_floor), float(lat_floor + 1),
             float(lon_floor), float(lon_floor + 1),
             padding=0.0,
@@ -237,6 +235,11 @@ def main() -> int:
     parser.add_argument(
         "--no-cache", action="store_true",
         help="Re-query Overpass even if cached trail counts exist.",
+    )
+    parser.add_argument(
+        "--cache-dir", type=Path,
+        default=Path.home() / ".cache" / "skitur" / "dem",
+        help="DEM tile cache directory.",
     )
     args = parser.parse_args()
 
@@ -283,6 +286,9 @@ def main() -> int:
         print("\nDry run. Pass --download to actually fetch tiles.")
         return 0
 
+    from skitur.terrain import TerrainLoader
+    loader = TerrainLoader(cache_dir=args.cache_dir)
+
     print(f"\nDownloading {total} tiles...\n")
     ok = 0
     failed = 0
@@ -291,7 +297,7 @@ def main() -> int:
         region = _tile_region(lat, lon)
         label = f" ({region})" if region else ""
         print(f"[{i}/{total}] ({lat}, {lon}) - {count} trails{label}")
-        if download_tile(lat, lon):
+        if download_tile(lat, lon, loader):
             ok += 1
             used_mb += _tile_size_mb(lat, lon)
         else:
