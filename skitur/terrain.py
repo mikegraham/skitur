@@ -9,6 +9,7 @@ All accessed via dem-stitcher.
 
 import logging
 import math
+import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,8 +26,9 @@ logger = logging.getLogger(__name__)
 class ExtentTooLargeError(Exception):
     """Raised when the requested DEM extent exceeds the allowed limit."""
 
-# Persistent tile cache for dem-stitcher (it has no built-in cache)
-_TILE_CACHE_DIR = Path.home() / ".cache" / "skitur" / "dem"
+# Persistent tile cache for dem-stitcher (it has no built-in cache).
+# Override with SKITUR_DEM_CACHE to use a mounted volume, etc.
+_TILE_CACHE_DIR = Path(os.environ.get("SKITUR_DEM_CACHE", Path.home() / ".cache" / "skitur" / "dem"))
 
 
 @dataclass(frozen=True)
