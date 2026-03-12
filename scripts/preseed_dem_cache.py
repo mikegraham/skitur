@@ -21,6 +21,9 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import os
+import shutil
+
 import requests
 
 logging.basicConfig(level=logging.WARNING)
@@ -201,30 +204,58 @@ def prioritize_tiles(
     return tiles
 
 
+def _clean_staging(cache_dir: Path) -> int:
+    """Remove leftover files from interrupted downloads."""
+    staging = cache_dir / ".staging"
+    if not staging.exists():
+        return 0
+    count = sum(1 for _ in staging.rglob("*.tif"))
+    if count:
+        shutil.rmtree(staging)
+    return count
+
+
 def download_tile(lat_floor: int, lon_floor: int, cache_dir: Path) -> bool:
     """Download the single DEM source tile for a 1x1 degree cell.
 
-    Uses get_dem_tile_paths to download the tile directly to the cache dir,
-    skipping stitching and reprojection entirely.
+    Downloads to a staging directory first, then moves files to the live
+    cache dir. If the process is killed mid-download, only staging has
+    partial files — the live dir stays clean.
     """
+    from dem_stitcher import get_overlapping_dem_tiles
     from dem_stitcher.stitcher import get_dem_tile_paths
 
     source_name = _tile_source(lat_floor, lon_floor)
-    tile_dir = cache_dir / source_name
-    tile_dir.mkdir(parents=True, exist_ok=True)
+    live_dir = cache_dir / source_name
+    staging_dir = cache_dir / ".staging" / source_name
+    live_dir.mkdir(parents=True, exist_ok=True)
 
     # Exact 1x1 degree bounds — no padding, matches the source tile exactly.
     bounds = [float(lon_floor), float(lat_floor),
               float(lon_floor + 1), float(lat_floor + 1)]
 
+    # Check if tiles already exist in live dir.
+    df_tiles = get_overlapping_dem_tiles(bounds, source_name)
+    urls = df_tiles.url.tolist()
+    filenames = [url.split("/")[-1].replace(".zip", ".tif") for url in urls]
+    if all((live_dir / f).exists() for f in filenames):
+        print(f"    already cached ({source_name})")
+        return True
+
+    # Download to staging, then move to live.
+    staging_dir.mkdir(parents=True, exist_ok=True)
     try:
         t0 = time.perf_counter()
-        get_dem_tile_paths(
+        paths = get_dem_tile_paths(
             bounds=bounds,
             dem_name=source_name,
             localize_tiles_to_gtiff=True,
-            tile_dir=tile_dir,
+            tile_dir=staging_dir,
         )
+        for p in paths:
+            p = Path(p)
+            if p.exists():
+                os.rename(p, live_dir / p.name)
         dt = time.perf_counter() - t0
         print(f"    downloaded ({source_name}) in {dt:.1f}s")
         return True
@@ -299,6 +330,10 @@ def main() -> int:
     if not args.download:
         print("\nDry run. Pass --download to actually fetch tiles.")
         return 0
+
+    removed = _clean_staging(args.cache_dir)
+    if removed:
+        print(f"Cleaned {removed} partial tile(s) from interrupted download")
 
     print(f"\nDownloading {total} tiles...\n")
     ok = 0
