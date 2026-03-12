@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Skitur</title>
+    <title>{{ config.get('SITE_TITLE', 'Skitur') }}</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
@@ -11,20 +11,31 @@
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { overflow-x: hidden; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-               background: #f5f5f5; color: #333; }
+               background: linear-gradient(135deg, #e8eef5 0%, #f5f5f5 50%, #e8f0e8 100%);
+               min-height: 100vh; color: #333; }
 
-        #upload-section { max-width: 500px; margin: 100px auto; text-align: center;
-                          padding: 40px; background: white; border-radius: 8px;
-                          box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        #upload-section h1 { font-size: 2em; margin-bottom: 4px; }
-        #upload-section p { color: #666; margin-bottom: 20px; }
-        #upload-disclaimer { margin-top: 24px; color: #999; font-size: 0.75em; line-height: 1.4; }
+        #upload-section { max-width: 500px; margin: 80px auto; text-align: center;
+                          padding: 44px 40px; background: white; border-radius: 12px;
+                          box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        #upload-section h1 { font-size: 2.2em; margin-bottom: 6px; letter-spacing: -0.02em;
+                              color: #1a1a2e; }
+        #upload-section p { color: #666; margin-bottom: 24px; font-size: 1.05em; }
+        #github-link { position: fixed; top: 16px; right: 16px; z-index: 1000;
+                        display: inline-flex; align-items: center; gap: 6px;
+                        padding: 6px 12px; background: #24292e; color: white;
+                        border-radius: 6px; font-size: 0.8em; text-decoration: none;
+                        opacity: 0.7; transition: opacity 0.15s; }
+        #github-link:hover { opacity: 1; }
+        .disclaimer { color: #999; font-size: 0.75em; line-height: 1.4; }
+        #upload-section .disclaimer { margin-top: 24px; }
         #upload-form { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-        #gpx-input { max-width: 100%; }
-        #analyze-btn { padding: 10px 30px; background: #2563eb; color: white;
-                       border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
-        #analyze-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        #gpx-input { max-width: 100%; font-size: 0.95em; }
         #loading { margin-top: 20px; color: #666; display: none; }
+        #loading::before { content: ""; display: inline-block; width: 14px; height: 14px;
+                           border: 2px solid #ccc; border-top-color: #666;
+                           border-radius: 50%; margin-right: 8px; vertical-align: middle;
+                           animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
         #error { margin-top: 20px; color: #dc2626; display: none;
                  background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px;
                  padding: 12px 16px; font-weight: 500; }
@@ -165,21 +176,20 @@
     </style>
 </head>
 <body>
+        <a id="github-link" href="https://github.com/mikegraham/skitur" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            Fork on GitHub
+        </a>
         <div id="upload-section">
-            <h1>Skitur</h1>
+            <h1>{{ config.get('SITE_TITLE', 'Skitur') }}</h1>
             <p>Upload a GPX file to analyze your XC ski tour.</p>
             <form id="upload-form">
                 <label class="visually-hidden" for="gpx-input">GPX file</label>
                 <input type="file" id="gpx-input" accept=".gpx" />
-                <button type="submit" id="analyze-btn">Analyze</button>
             </form>
             <div id="loading" role="status" aria-live="polite" aria-atomic="true">Analyzing track (may take some time)...</div>
             <div id="error" role="alert" aria-live="assertive"></div>
-            <div id="upload-disclaimer">
-                <strong>USE AT YOUR OWN RISK.</strong> Winter travel involves inherent risks of injury and death.
-                This tool provides automated terrain analysis, not professional advice or a substitute for
-                official forecasts, education, or field judgment.
-            </div>
+            <div class="disclaimer"></div>
         </div>
 
         <div id="results-section">
@@ -232,11 +242,7 @@
 
         <div id="acknowledgements">
             <div class="acknowledgements-paragraph">
-                <strong>USE AT YOUR OWN RISK.</strong> Winter travel involves inherent risks of injury and death. Skitur provides
-                automated terrain analysis provided "AS IS" and "WITH ALL FAULTS" without warranties of any kind,
-                including accuracy or fitness for a particular purpose. This report is for informational purposes
-                only and does not constitute professional advice. This report is not a substitute for official
-                forecasts, education, or field judgment.
+                <span class="disclaimer"></span>
             </div>
             <div class="acknowledgements-paragraph">
                 Many thanks to
@@ -374,20 +380,22 @@ function scoreColor(val) {
     return "#dc2626";
 }
 
+// ── Disclaimer (single source of truth) ───────────────────────────
+const DISCLAIMER = '<strong>USE AT YOUR OWN RISK.</strong> Winter travel involves inherent risks of injury and death. Skitur provides automated terrain analysis provided "AS IS" and "WITH ALL FAULTS" without warranties of any kind, including accuracy or fitness for a particular purpose. This report is for informational purposes only and does not constitute professional advice. This report is not a substitute for official forecasts, education, or field judgment.';
+document.querySelectorAll(".disclaimer").forEach(el => { el.innerHTML = DISCLAIMER; });
+
 // ── State ──────────────────────────────────────────────────────────
 let trackData = null;
 let map = null;
 let hoverMarker = null;
 
 // ── Wake up server (triggers cold start if scaled to zero) ────────
-fetch("/healthz").catch(() => {});
+if (location.protocol !== "file:") fetch("/healthz").catch(() => {});
 
 // ── Upload ─────────────────────────────────────────────────────────
-const uploadForm = document.getElementById("upload-form");
-if (uploadForm) {
-    uploadForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const fileInput = document.getElementById("gpx-input");
+const fileInput = document.getElementById("gpx-input");
+if (fileInput) {
+    fileInput.addEventListener("change", async () => {
         if (!fileInput.files.length) return;
 
         const formData = new FormData();
@@ -395,11 +403,13 @@ if (uploadForm) {
 
         document.getElementById("loading").style.display = "block";
         document.getElementById("error").style.display = "none";
-        document.getElementById("analyze-btn").disabled = true;
+        fileInput.disabled = true;
 
         try {
             const resp = await fetch("/api/analyze", { method: "POST", body: formData });
-            const data = await resp.json();
+            const text = await resp.text();
+            let data;
+            try { data = JSON.parse(text); } catch { throw new Error("Server returned an invalid response. Please try again."); }
             if (!resp.ok) throw new Error(data.error || "Analysis failed");
             trackData = data;
             renderResults(data, fileInput.files[0].name);
@@ -408,7 +418,7 @@ if (uploadForm) {
             document.getElementById("error").style.display = "block";
         } finally {
             document.getElementById("loading").style.display = "none";
-            document.getElementById("analyze-btn").disabled = false;
+            fileInput.disabled = false;
         }
     });
 }
