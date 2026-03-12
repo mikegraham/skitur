@@ -93,6 +93,8 @@
         #elevation-chart, #slopes-chart { min-height: 220px; background: white;
                                            border-radius: 8px; padding: 8px;
                                            box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        /* Round line caps eliminate anti-aliasing gaps between adjacent colored segments */
+        #elevation-chart .scatterlayer path { stroke-linecap: round; }
         #bottom-charts-row { display: flex; gap: 16px; margin-bottom: 16px; }
         #violin-chart, #histogram-chart, #aspect-rose-chart, #aspect-dist-chart { min-height: 220px; background: white; border-radius: 8px;
                            padding: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
@@ -1150,43 +1152,70 @@ function renderElevationChart(track) {
         `rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`
     ]);
 
-    // Background line: continuous light line to fill gaps between
-    // color-bucketed segments at slope transitions.
+    // Downsample to ~1000 points for chart rendering (chart is ~500px wide,
+    // so more is wasted detail and chokes SVG with sub-pixel paths).
+    const maxChartPts = 500;
+    const step = Math.max(1, Math.floor(distances.length / maxChartPts));
+    const cDist = [], cElev = [], cSlope = [], cIdx = [];
+    for (let i = 0; i < distances.length; i += step) {
+        cDist.push(distances[i]);
+        cElev.push(elevations[i]);
+        cSlope.push(slopes[i]);
+        cIdx.push(i);
+    }
+    // Always include last point
+    if (cDist[cDist.length - 1] !== distances[distances.length - 1]) {
+        cDist.push(distances[distances.length - 1]);
+        cElev.push(elevations[elevations.length - 1]);
+        cSlope.push(slopes[slopes.length - 1]);
+        cIdx.push(distances.length - 1);
+    }
+
+
+    // Dark underline fills anti-aliasing gaps between colored trace junctions.
     const bgTrace = {
-        x: distances, y: elevations,
+        x: cDist, y: cElev,
         mode: "lines",
-        line: { color: "#ccc", width: 5 },
+        line: { color: "#333", width: 4 },
         hoverinfo: "skip",
         showlegend: false,
         type: "scatter",
     };
 
-    // Colored line segments grouped by half-degree slope buckets (~30 traces)
+    // Colored line segments grouped by half-degree slope buckets.
+    // Merge consecutive segments in the same bucket into continuous runs.
     const buckets = {};
-    for (let i = 0; i < distances.length - 1; i++) {
-        const s = Math.min(slopes[i + 1], 20);
+    for (let i = 0; i < cDist.length - 1; i++) {
+        const s = Math.min(cSlope[i + 1], 20);
         const key = Math.floor(s * 2); // half-degree buckets
-        if (!buckets[key]) buckets[key] = { x: [], y: [] };
-        buckets[key].x.push(distances[i], distances[i + 1], null);
-        buckets[key].y.push(elevations[i], elevations[i + 1], null);
+        if (!buckets[key]) buckets[key] = { x: [], y: [], lastIdx: -1 };
+        const b = buckets[key];
+        if (b.lastIdx === i) {
+            b.x.push(cDist[i + 1]);
+            b.y.push(cElev[i + 1]);
+        } else {
+            if (b.x.length > 0) { b.x.push(null); b.y.push(null); }
+            b.x.push(cDist[i], cDist[i + 1]);
+            b.y.push(cElev[i], cElev[i + 1]);
+        }
+        b.lastIdx = i + 1;
     }
 
-    // Sort by slope DESCENDING: dark (steep) traces draw first, light (gentle)
-    // traces draw on top. This prevents dark traces from bleeding over adjacent
-    // lighter segments at junction points.
+    // Sort by slope DESCENDING: steep draws first, gentle on top.
+    // The one-point overlap ensures no white gaps between trace junctions.
     const lineTraces = Object.entries(buckets)
         .sort((a, b) => Number(b[0]) - Number(a[0]))
         .map(([key, pts]) => ({
             x: pts.x, y: pts.y,
             mode: "lines",
-            line: { color: slopeToColor(Number(key) / 2 + 0.25), width: 4 },
+            line: { color: slopeToColor(Number(key) / 2 + 0.25), width: 6 },
             hoverinfo: "skip",
             showlegend: false,
             type: "scatter",
             connectgaps: false,
         }));
 
-    // Invisible marker trace for hover interaction — spans entire x range
+    // Invisible marker trace for hover — full-resolution data for accuracy.
     const hoverTrace = {
         x: distances, y: elevations,
         mode: "markers",
