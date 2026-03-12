@@ -205,6 +205,83 @@ def test_stats_table_has_gps_points(rendered_page):
     )
 
 
+def test_elevation_chart_colored_with_dense_track(rendered_page):
+    """Regression: dense tracks (2000+ pts) must show colored lines, not gray.
+
+    Before the fix, tracks with many points produced sub-pixel SVG segments
+    that rendered as all-gray (#ccc background showing through). The
+    downsampling + segment merging fix ensures the line is visibly colored.
+
+    This test injects a 5000-point synthetic track, renders the chart, takes
+    a screenshot, and verifies that the line area contains non-gray colored
+    pixels (green, orange, red, black from the slope colormap).
+    """
+    page = rendered_page
+
+    # Inject a synthetic 5000-point track and re-render the elevation chart.
+    result = page.evaluate("""async () => {
+        const N = 5000;
+        const track = [];
+        for (let i = 0; i < N; i++) {
+            const t = i / N;
+            track.push({
+                lat: 41.0 + t * 0.01,
+                lon: -122.0 + t * 0.01,
+                elevation: 2000 + 1500 * Math.sin(t * Math.PI),
+                distance: i * 3.2,  // ~16km total
+                track_slope: 5 + 15 * Math.sin(t * Math.PI * 4),
+                ground_slope: 10,
+                ground_aspect: 180,
+            });
+        }
+        try {
+            renderElevationChart(track);
+        } catch (e) {
+            return { error: e.message };
+        }
+
+        // Render chart to image and sample pixel colors along the line.
+        const chartEl = document.getElementById('elevation-chart');
+        const dataUrl = await Plotly.toImage(chartEl, {format: 'png', width: 500, height: 200});
+        const img = new Image();
+        await new Promise(resolve => { img.onload = resolve; img.src = dataUrl; });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 500; canvas.height = 200;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        let grayPx = 0, coloredPx = 0;
+        for (let x = 50; x < 450; x += 2) {
+            for (let y = 30; y < 170; y += 2) {
+                const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
+                if (a < 128) continue;
+                if (r > 240 && g > 240 && b > 240) continue;  // white bg
+                const avg = (r + g + b) / 3;
+                const maxDev = Math.max(
+                    Math.abs(r - avg), Math.abs(g - avg), Math.abs(b - avg)
+                );
+                if (maxDev < 15 && avg > 100 && avg < 230) {
+                    grayPx++;
+                } else if (r + g + b < 700) {
+                    coloredPx++;
+                }
+            }
+        }
+        return { grayPx, coloredPx };
+    }""")
+
+    assert "error" not in result, f"renderElevationChart failed: {result['error']}"
+    colored = result["coloredPx"]
+    gray = result["grayPx"]
+    # The colored pixels should outnumber gray pixels along the line.
+    # Before the fix, the line was almost entirely gray (#ccc).
+    assert colored > gray, (
+        f"Elevation chart line is mostly gray ({gray} gray vs {colored} colored px) — "
+        "dense track slope colors are not rendering visibly"
+    )
+
+
 def test_slope_overlay_survives_viewport_resize(rendered_page):
     """Regression: slope shading must remain visible after viewport resize."""
     page = rendered_page
