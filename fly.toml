@@ -21,5 +21,5 @@ primary_region = "sjc"
 [[mounts]]
   source = "skitur_data"
   destination = "/data"
-  initial_size = "25gb"
+  initial_size = "30gb"
   snapshot_retention = 30

@@ -33,8 +33,6 @@ TRAIL_CACHE = Path("_preseed_trail_counts.json")
 TILE_SIZE_3DEP_MB = 435
 TILE_SIZE_GLO30_MB = 25
 
-# All regions weighted equally — sort by raw trail density.
-US_WEIGHT = 1.0
 
 
 def _is_us_coverage(lat: float, lon: float) -> bool:
@@ -187,14 +185,8 @@ def prioritize_tiles(
     tiles: list[tuple[tuple[int, int], int]],
     max_gb: float | None,
 ) -> list[tuple[tuple[int, int], int]]:
-    """Sort by weighted trail count (US 2x), then apply disk budget."""
-    def _weighted(tile_count: tuple[tuple[int, int], int]) -> float:
-        (lat, lon), count = tile_count
-        if _is_us_coverage(lat + 0.5, lon + 0.5):
-            return count * US_WEIGHT
-        return float(count)
-
-    tiles = sorted(tiles, key=_weighted, reverse=True)
+    """Sort by trail count descending, then apply disk budget."""
+    tiles = sorted(tiles, key=lambda t: t[1], reverse=True)
 
     if max_gb is not None:
         budget_mb = max_gb * 1024
@@ -286,7 +278,6 @@ def main() -> int:
     print(f"\nTotal: {total} tiles ({n_3dep} 3DEP, {n_glo30} GLO-30)")
     print(f"Trails covered: {total_trails} / {grand_total_trails} ({total_trails / grand_total_trails * 100:.0f}%)")
     print(f"Estimated disk: {total_mb / 1024:.1f} GB")
-    print(f"US prioritization: {US_WEIGHT}x weight")
 
     if not args.download:
         print("\nDry run. Pass --download to actually fetch tiles.")
