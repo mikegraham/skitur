@@ -47,11 +47,12 @@ def _is_us_coverage(lat: float, lon: float) -> bool:
 
 
 def _tile_source(lat: int, lon: int) -> str:
-    return "3DEP" if _is_us_coverage(lat + 0.5, lon + 0.5) else "GLO-30"
+    """Return dem-stitcher source name for a tile."""
+    return "3dep" if _is_us_coverage(lat + 0.5, lon + 0.5) else "glo_30"
 
 
 def _tile_size_mb(lat: int, lon: int) -> float:
-    return TILE_SIZE_3DEP_MB if _tile_source(lat, lon) == "3DEP" else TILE_SIZE_GLO30_MB
+    return TILE_SIZE_3DEP_MB if _tile_source(lat, lon) == "3dep" else TILE_SIZE_GLO30_MB
 
 
 def _tile_region(lat: int, lon: int) -> str:
@@ -200,19 +201,32 @@ def prioritize_tiles(
     return tiles
 
 
-def download_tile(lat_floor: int, lon_floor: int, loader) -> bool:
-    """Download DEM for a 1x1 degree tile. Returns True on success."""
-    source = _tile_source(lat_floor, lon_floor)
+def download_tile(lat_floor: int, lon_floor: int, cache_dir: Path) -> bool:
+    """Download the single DEM source tile for a 1x1 degree cell.
+
+    Uses get_dem_tile_paths to download the tile directly to the cache dir,
+    skipping stitching and reprojection entirely.
+    """
+    from dem_stitcher.stitcher import get_dem_tile_paths
+
+    source_name = _tile_source(lat_floor, lon_floor)
+    tile_dir = cache_dir / source_name
+    tile_dir.mkdir(parents=True, exist_ok=True)
+
+    # Exact 1x1 degree bounds — no padding, matches the source tile exactly.
+    bounds = [float(lon_floor), float(lat_floor),
+              float(lon_floor + 1), float(lat_floor + 1)]
 
     try:
         t0 = time.perf_counter()
-        loader.load(
-            float(lat_floor), float(lat_floor + 1),
-            float(lon_floor), float(lon_floor + 1),
-            padding=0.0,
+        get_dem_tile_paths(
+            bounds=bounds,
+            dem_name=source_name,
+            localize_tiles_to_gtiff=True,
+            tile_dir=tile_dir,
         )
         dt = time.perf_counter() - t0
-        print(f"    downloaded ({source}) in {dt:.1f}s")
+        print(f"    downloaded ({source_name}) in {dt:.1f}s")
         return True
     except Exception as e:
         print(f"    FAILED: {e}")
@@ -275,7 +289,7 @@ def main() -> int:
 
     total = len(tiles)
     total_trails = sum(c for _, c in tiles)
-    n_3dep = sum(1 for (lat, lon), _ in tiles if _tile_source(lat, lon) == "3DEP")
+    n_3dep = sum(1 for (lat, lon), _ in tiles if _tile_source(lat, lon) == "3dep")
     n_glo30 = total - n_3dep
 
     print(f"\nTotal: {total} tiles ({n_3dep} 3DEP, {n_glo30} GLO-30)")
@@ -286,9 +300,6 @@ def main() -> int:
         print("\nDry run. Pass --download to actually fetch tiles.")
         return 0
 
-    from skitur.terrain import TerrainLoader
-    loader = TerrainLoader(cache_dir=args.cache_dir)
-
     print(f"\nDownloading {total} tiles...\n")
     ok = 0
     failed = 0
@@ -297,7 +308,7 @@ def main() -> int:
         region = _tile_region(lat, lon)
         label = f" ({region})" if region else ""
         print(f"[{i}/{total}] ({lat}, {lon}) - {count} trails{label}")
-        if download_tile(lat, lon, loader):
+        if download_tile(lat, lon, args.cache_dir):
             ok += 1
             used_mb += _tile_size_mb(lat, lon)
         else:

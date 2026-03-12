@@ -54,7 +54,18 @@ _terrain_loader = TerrainLoader(cache_dir=app.config["DEM_CACHE_DIR"])
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    resp = Response(render_template("index.html"), content_type="text/html")
+    resp.cache_control.public = True
+    resp.cache_control.max_age = 300  # 5 min browser cache
+    return resp
+
+
+@app.route("/healthz")
+def healthz():
+    return Response(
+        orjson.dumps({"status": "ok"}),
+        content_type="application/json",
+    )
 
 
 def _json_error(msg: str, status: int = 400) -> tuple[Response, int]:

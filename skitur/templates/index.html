@@ -379,6 +379,9 @@ let trackData = null;
 let map = null;
 let hoverMarker = null;
 
+// ── Wake up server (triggers cold start if scaled to zero) ────────
+fetch("/healthz").catch(() => {});
+
 // ── Upload ─────────────────────────────────────────────────────────
 const uploadForm = document.getElementById("upload-form");
 if (uploadForm) {

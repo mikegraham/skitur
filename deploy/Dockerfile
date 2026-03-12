@@ -4,6 +4,7 @@ FROM python:3.13-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin libgdal-dev \
     libgeos-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
