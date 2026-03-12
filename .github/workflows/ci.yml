@@ -26,8 +26,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install '.[dev]'
 
+      - name: Install Playwright browsers
+        run: python -m playwright install --with-deps chromium
+
       - name: Run tests
-        run: pytest --ignore=tests/test_visual.py
+        run: pytest
 
       - name: Check dependency hygiene
         run: deptry .
