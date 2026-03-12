@@ -2,7 +2,7 @@ app = "skitur"
 primary_region = "sjc"
 
 [build]
-  dockerfile = "deploy/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [env]
   SKITUR_CONFIG = "/app/deploy/config/production.py"
