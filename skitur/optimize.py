@@ -7,9 +7,10 @@ that balances slope quality and avalanche safety.
 import math
 import random
 from dataclasses import dataclass
+from pathlib import Path
 
 from skitur.geo import equirectangular_distance, METERS_PER_DEG_LAT
-from skitur.terrain import Terrain, load_dem_for_bounds
+from skitur.terrain import Terrain, TerrainLoader
 from skitur.score import _avy_slope_penalty, _downhill_segment_score, _uphill_segment_score
 
 # Optimization parameters
@@ -181,6 +182,8 @@ def _optimize_point(
 def optimize_route(
     waypoints: list[Waypoint],
     num_iterations: int = NUM_ITERATIONS,
+    *,
+    terrain_loader: TerrainLoader,
 ) -> OptimizationResult:
     """Optimize a route through the given waypoints.
 
@@ -197,7 +200,7 @@ def optimize_route(
     # Load DEM for the area
     lats = [w.lat for w in waypoints]
     lons = [w.lon for w in waypoints]
-    dem = load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
+    dem = terrain_loader.load(min(lats), max(lats), min(lons), max(lons), padding=0.02)
 
     # Build initial route by interpolating between waypoints
     points: list[tuple[float, float]] = []
@@ -275,7 +278,8 @@ def optimize_hood_example():
             interp = _interpolate_points((prev.lat, prev.lon), (wp.lat, wp.lon))
             initial_points.extend(interp[1:] if initial_points else interp)
 
-    result = optimize_route(waypoints, num_iterations=30)
+    loader = TerrainLoader(cache_dir=Path.home() / ".cache" / "skitur" / "dem")
+    result = optimize_route(waypoints, num_iterations=30, terrain_loader=loader)
 
     print(f"\nResult: {len(result.route)} points, cost={result.cost:.2f}")
     print(f"Iterations: {result.iterations}")

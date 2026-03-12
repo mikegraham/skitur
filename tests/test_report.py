@@ -31,14 +31,14 @@ def _minimal_payload() -> dict:
     }
 
 
-def test_generate_report_omits_upload_ui(monkeypatch, tmp_path):
-    monkeypatch.setattr("skitur.report.build_analysis_payload", lambda _: _minimal_payload())
+def test_generate_report_omits_upload_ui(monkeypatch, tmp_path, terrain_loader):
+    monkeypatch.setattr("skitur.report.build_analysis_payload", lambda _, **kw: _minimal_payload())
 
     gpx_path = tmp_path / "route.gpx"
     gpx_path.write_text("ignored", encoding="utf-8")
     output_path = tmp_path / "route_report.html"
 
-    out = generate_report(gpx_path, output_path)
+    out = generate_report(gpx_path, output_path, terrain_loader=terrain_loader)
     html = out.read_text(encoding="utf-8")
 
     assert 'id="upload-section"' not in html

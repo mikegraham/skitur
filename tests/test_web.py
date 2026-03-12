@@ -28,17 +28,16 @@ def client():
 
 
 @pytest.fixture(scope="module")
-def analysis_data():
+def analysis_data(terrain_loader):
     """Run full analysis once and return the JSON response dict."""
     from skitur.gpx import load_track
     from skitur.analyze import analyze_track
     from skitur.score import score_tour
-    from skitur.terrain import load_dem_for_bounds
 
     raw = load_track(TEST_GPX)
     lats = [p[0] for p in raw]
     lons = [p[1] for p in raw]
-    dem = load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
+    dem = terrain_loader.load(min(lats), max(lats), min(lons), max(lons), padding=0.02)
     points = analyze_track(raw, dem=dem)
     stats = compute_stats(points)
     score = score_tour(points, dem)
@@ -140,7 +139,7 @@ def test_analyze_extent_too_large(client, monkeypatch):
     from skitur import app as app_mod
     from skitur.terrain import ExtentTooLargeError
 
-    def _boom(path):
+    def _boom(path, **kwargs):
         raise ExtentTooLargeError("Extent too large")
     monkeypatch.setattr(app_mod, "build_analysis_payload", _boom)
 
@@ -158,7 +157,7 @@ def test_analyze_unexpected_error(client, monkeypatch):
     """Unexpected exceptions should return 500 with a generic message."""
     from skitur import app as app_mod
 
-    def _boom(path):
+    def _boom(path, **kwargs):
         raise RuntimeError("something broke")
     monkeypatch.setattr(app_mod, "build_analysis_payload", _boom)
 
@@ -518,17 +517,16 @@ TWIN_LAKES_GPX = Path(__file__).parent / "data" / "Twin_Lakes.gpx"
 
 
 @pytest.fixture(scope="module")
-def twin_lakes_data():
+def twin_lakes_data(terrain_loader):
     """Run full analysis on Twin Lakes and return the JSON response dict."""
     from skitur.gpx import load_track
     from skitur.analyze import analyze_track
     from skitur.score import score_tour
-    from skitur.terrain import load_dem_for_bounds
 
     raw = load_track(TWIN_LAKES_GPX)
     lats = [p[0] for p in raw]
     lons = [p[1] for p in raw]
-    dem = load_dem_for_bounds(min(lats), max(lats), min(lons), max(lons), padding=0.02)
+    dem = terrain_loader.load(min(lats), max(lats), min(lons), max(lons), padding=0.02)
     points = analyze_track(raw, dem=dem)
     stats = compute_stats(points)
     score = score_tour(points, dem)

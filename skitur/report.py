@@ -16,7 +16,7 @@ from skitur.gpx import load_track
 from skitur.mapdata import choose_contour_steps_ft
 from skitur.score import TourScore, score_tour
 from skitur.stats import compute_stats
-from skitur.terrain import load_dem_for_bounds
+from skitur.terrain import TerrainLoader
 
 GRID_MIN_SCALE = 1.3
 GRID_SQUARE_EXTRA_LIMIT_M = 5000.0
@@ -181,7 +181,7 @@ def _build_response(
     }
 
 
-def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, TourScore, dict]:
+def _compute_analysis(gpx_path: Path, *, terrain_loader: TerrainLoader) -> tuple[list[TrackPoint], dict, TourScore, dict]:
     """Run full analysis for one GPX path.
 
     Overlaps independent work: slope grid (expensive, ~1.5s) runs concurrently
@@ -209,7 +209,7 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, TourScore
     dem_lat_max = max(lat_max_t + 0.02, grid_bounds[1])
     dem_lon_min = min(lon_min_t - 0.02, grid_bounds[2])
     dem_lon_max = max(lon_max_t + 0.02, grid_bounds[3])
-    dem = load_dem_for_bounds(dem_lat_min, dem_lat_max, dem_lon_min, dem_lon_max, padding=0.01)
+    dem = terrain_loader.load(dem_lat_min, dem_lat_max, dem_lon_min, dem_lon_max, padding=0.01)
 
     slope_resolution = min(dem.native_max_dimension, 800)
     contour_resolution = min(slope_resolution, 300)
@@ -250,9 +250,9 @@ def _compute_analysis(gpx_path: Path) -> tuple[list[TrackPoint], dict, TourScore
     return points, stats, score, grids
 
 
-def build_analysis_payload(gpx_path: Path) -> dict:
+def build_analysis_payload(gpx_path: Path, *, terrain_loader: TerrainLoader) -> dict:
     """Compute report/API payload from a GPX file path."""
-    points, stats, score, grids = _compute_analysis(gpx_path)
+    points, stats, score, grids = _compute_analysis(gpx_path, terrain_loader=terrain_loader)
     return _build_response(points, stats, score, grids)
 
 
@@ -295,12 +295,12 @@ def build_embedded_report_html(
     return template_html.replace("</body>", inject + "</body>")
 
 
-def generate_report(gpx_path: Path, output_path: Path | None = None) -> Path:
+def generate_report(gpx_path: Path, output_path: Path | None = None, *, terrain_loader: TerrainLoader) -> Path:
     """Generate a self-contained static HTML report for a GPX file."""
     if output_path is None:
         output_path = gpx_path.with_name(gpx_path.stem + "_report.html")
 
-    data = build_analysis_payload(gpx_path)
+    data = build_analysis_payload(gpx_path, terrain_loader=terrain_loader)
     template_html = (Path(__file__).parent / "templates" / "index.html").read_text()
     template_html = _strip_upload_ui_for_static_report(template_html)
 

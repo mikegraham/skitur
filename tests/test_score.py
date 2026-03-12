@@ -22,21 +22,22 @@ from skitur.score import (
     score_tour,
 )
 from skitur.analyze import TrackPoint
-from skitur.terrain import load_dem_for_bounds
+from skitur.terrain import TerrainLoader
 
 pytestmark = pytest.mark.enable_socket
 
 
 @pytest.fixture(scope="module")
-def dem():
+def dem(terrain_loader):
     """Load DEM for runout-exposure and score_tour integration tests."""
-    return load_dem_for_bounds(44.9, 45.5, -121.9, -121.4, padding=0.02)
+    return terrain_loader.load(44.9, 45.5, -121.9, -121.4, padding=0.02)
 
 
 @lru_cache(maxsize=1)
 def _fuzz_dem():
     """Cached DEM for Hypothesis fuzzing to avoid rebuilding terrain per example."""
-    return load_dem_for_bounds(44.9, 45.5, -121.9, -121.4, padding=0.02)
+    from tests.conftest import _DEM_CACHE_DIR
+    return TerrainLoader(cache_dir=_DEM_CACHE_DIR).load(44.9, 45.5, -121.9, -121.4, padding=0.02)
 
 
 def _make_point(lat=45.0, lon=-121.0, elevation=2000, distance=0,

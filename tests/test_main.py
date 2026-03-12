@@ -14,7 +14,7 @@ def test_entrypoint_with_explicit_output(monkeypatch, tmp_path, capsys):
     """Entrypoint should forward explicit -o path to report generation."""
     calls: list[tuple[Path, Path | None]] = []
 
-    def fake_generate_report(gpx_file: Path, output: Path | None) -> Path:
+    def fake_generate_report(gpx_file: Path, output: Path | None, **kwargs) -> Path:
         calls.append((gpx_file, output))
         assert output is not None
         output.write_text("<html>ok</html>", encoding="utf-8")
@@ -40,7 +40,7 @@ def test_entrypoint_default_output(monkeypatch, tmp_path, capsys):
     """Entrypoint should pass None output when -o is omitted."""
     calls: list[tuple[Path, Path | None]] = []
 
-    def fake_generate_report(gpx_file: Path, output: Path | None) -> Path:
+    def fake_generate_report(gpx_file: Path, output: Path | None, **kwargs) -> Path:
         calls.append((gpx_file, output))
         target = gpx_file.with_name(f"{gpx_file.stem}_report.html")
         target.write_text("<html>ok</html>", encoding="utf-8")

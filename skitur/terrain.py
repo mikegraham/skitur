@@ -15,7 +15,6 @@ from pathlib import Path
 
 import numpy as np
 
-from skitur import config
 from dem_stitcher import get_overlapping_dem_tiles, stitch_dem
 from dem_stitcher.exceptions import NoDEMCoverage
 
@@ -27,8 +26,6 @@ logger = logging.getLogger(__name__)
 class ExtentTooLargeError(Exception):
     """Raised when the requested DEM extent exceeds the allowed limit."""
 
-# Persistent tile cache for dem-stitcher (it has no built-in cache).
-_TILE_CACHE_DIR = config.DEM_CACHE_DIR
 
 
 @dataclass(frozen=True)
@@ -495,94 +492,93 @@ def _source_covers_bounds(source: _DEMSource, fetch_bounds: list[float]) -> bool
     return tiles.geometry.union_all().contains(shapely_box(*fetch_bounds))
 
 
-def _fetch_dem(
-    source: _DEMSource,
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
-) -> Terrain:
-    """Fetch DEM tiles for one source and build a Terrain object.
+class TerrainLoader:
+    """Loads Terrain objects from DEM tiles, with on-disk caching.
 
-    Caller should check _source_covers_bounds first.
-    Must be called under _dem_lock.
+    Resolution cascade: 3DEP (10m) → GLO-30 (30m) → GLO-90 (90m).
     """
-    _TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Expand bounds by one pixel so that pixel-center coordinates
-    # (from _coords_from_profile) fully cover the requested extent.
-    # Without this, the outermost pixel centers fall half a pixel
-    # inside the tile edge, causing covers() to fail on repeat calls.
-    fetch_bounds = [lon_min - source.resolution, lat_min - source.resolution,
-                    lon_max + source.resolution, lat_max + source.resolution]
+    def __init__(self, cache_dir: Path):
+        self.cache_dir = cache_dir
 
-    logger.info("Fetching DEM (%s) for bounds [%.4f, %.4f, %.4f, %.4f]",
-                 source.name, *fetch_bounds)
+    def load(
+        self,
+        lat_min: float, lat_max: float,
+        lon_min: float, lon_max: float,
+        *, padding: float,
+    ) -> Terrain:
+        """Load DEM for a bounding box, returning a Terrain object.
 
-    tile_cache = _TILE_CACHE_DIR / source.name
-    tile_cache.mkdir(parents=True, exist_ok=True)
-    stitch_kwargs = dict(
-        bounds=fetch_bounds,
-        dem_name=source.name,
-        dst_ellipsoidal_height=False,  # orthometric heights
-        dst_area_or_point="Point",
-        dst_resolution=source.resolution,
-        dst_tile_dir=tile_cache,
-    )
-    data, profile = _stitch_dem_fast(stitch_dem, **stitch_kwargs)
+        Tries sources best-first, skipping those without full coverage.
+        Thread-safe: module-level lock serializes stitch_dem calls.
+        """
+        MAX_EXTENT_DEG = 1.0
+        lat_span = lat_max - lat_min
+        lon_span = lon_max - lon_min
+        if lat_span > MAX_EXTENT_DEG or lon_span > MAX_EXTENT_DEG:
+            raise ExtentTooLargeError(
+                f"Route covers too large an area ({lat_span:.2f} x {lon_span:.2f} deg, "
+                f"max {MAX_EXTENT_DEG} x {MAX_EXTENT_DEG} deg)"
+            )
 
-    # Squeeze band dimension if present (stitch_dem returns 3D: [1, rows, cols])
-    if data.ndim == 3:
-        data = data[0]
+        lat_min -= padding
+        lat_max += padding
+        lon_min -= padding
+        lon_max += padding
 
-    x_coords, y_coords = _coords_from_profile(profile, data)
+        with _dem_lock:
+            for source in _DEM_SOURCES:
+                fetch_bounds = [lon_min - source.resolution, lat_min - source.resolution,
+                                lon_max + source.resolution, lat_max + source.resolution]
+                if _source_covers_bounds(source, fetch_bounds):
+                    return self._fetch(source, lat_min, lat_max, lon_min, lon_max)
+                logger.info("DEM source %s doesn't fully cover bounds; trying next", source.name)
 
-    # Ensure coords are sorted ascending (required for searchsorted)
-    if len(x_coords) > 1 and x_coords[0] > x_coords[-1]:
-        x_coords = x_coords[::-1]
-        data = data[:, ::-1]
-    if len(y_coords) > 1 and y_coords[0] > y_coords[-1]:
-        y_coords = y_coords[::-1]
-        data = data[::-1, :]
+            raise NoDEMCoverage(f"No DEM source covers bounds [{lat_min:.4f}, {lat_max:.4f}, "
+                                f"{lon_min:.4f}, {lon_max:.4f}]")
 
-    if not np.issubdtype(data.dtype, np.floating):
-        raise TypeError(
-            f"DEM data has non-float dtype {data.dtype}; expected float32 or float64"
+    def _fetch(
+        self,
+        source: _DEMSource,
+        lat_min: float, lat_max: float,
+        lon_min: float, lon_max: float,
+    ) -> Terrain:
+        """Fetch DEM tiles for one source. Must be called under _dem_lock."""
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        fetch_bounds = [lon_min - source.resolution, lat_min - source.resolution,
+                        lon_max + source.resolution, lat_max + source.resolution]
+
+        logger.info("Fetching DEM (%s) for bounds [%.4f, %.4f, %.4f, %.4f]",
+                     source.name, *fetch_bounds)
+
+        tile_cache = self.cache_dir / source.name
+        tile_cache.mkdir(parents=True, exist_ok=True)
+        stitch_kwargs = dict(
+            bounds=fetch_bounds,
+            dem_name=source.name,
+            dst_ellipsoidal_height=False,
+            dst_area_or_point="Point",
+            dst_resolution=source.resolution,
+            dst_tile_dir=tile_cache,
         )
+        data, profile = _stitch_dem_fast(stitch_dem, **stitch_kwargs)
 
-    return Terrain(x_coords=x_coords, y_coords=y_coords, data=data)
+        if data.ndim == 3:
+            data = data[0]
 
+        x_coords, y_coords = _coords_from_profile(profile, data)
 
-def load_dem_for_bounds(
-    lat_min: float, lat_max: float, lon_min: float, lon_max: float, padding: float = 0.01
-) -> Terrain:
-    """Load DEM for a bounding box, returning a Terrain object.
+        if len(x_coords) > 1 and x_coords[0] > x_coords[-1]:
+            x_coords = x_coords[::-1]
+            data = data[:, ::-1]
+        if len(y_coords) > 1 and y_coords[0] > y_coords[-1]:
+            y_coords = y_coords[::-1]
+            data = data[::-1, :]
 
-    Resolution cascade: US 3DEP (10m) > GLO-30 (30m).
-    Tiles are cached on disk so repeat calls read local files instead of S3.
-    Thread-safe: lock serializes stitch_dem calls.
-    """
-    MAX_EXTENT_DEG = 1.0
-    lat_span = lat_max - lat_min
-    lon_span = lon_max - lon_min
-    if lat_span > MAX_EXTENT_DEG or lon_span > MAX_EXTENT_DEG:
-        raise ExtentTooLargeError(
-            f"Route covers too large an area ({lat_span:.2f} x {lon_span:.2f} deg, "
-            f"max {MAX_EXTENT_DEG} x {MAX_EXTENT_DEG} deg)"
-        )
+        if not np.issubdtype(data.dtype, np.floating):
+            raise TypeError(
+                f"DEM data has non-float dtype {data.dtype}; expected float32 or float64"
+            )
 
-    # Add padding
-    lat_min -= padding
-    lat_max += padding
-    lon_min -= padding
-    lon_max += padding
-
-    with _dem_lock:
-        # Try sources best-first, skip those that don't fully cover the bounds.
-        for source in _DEM_SOURCES:
-            fetch_bounds = [lon_min - source.resolution, lat_min - source.resolution,
-                            lon_max + source.resolution, lat_max + source.resolution]
-            if _source_covers_bounds(source, fetch_bounds):
-                return _fetch_dem(source, lat_min, lat_max, lon_min, lon_max)
-            logger.info("DEM source %s doesn't fully cover bounds; trying next", source.name)
-
-        raise NoDEMCoverage(f"No DEM source covers bounds [{lat_min:.4f}, {lat_max:.4f}, "
-                            f"{lon_min:.4f}, {lon_max:.4f}]")
+        return Terrain(x_coords=x_coords, y_coords=y_coords, data=data)

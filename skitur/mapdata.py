@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from skitur.analyze import TrackPoint
-from skitur.terrain import Terrain, load_dem_for_bounds
+from skitur.terrain import Terrain
 
 M_TO_FT = 3.28084
 
