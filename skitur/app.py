@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
 import threading
 import time
@@ -14,19 +15,23 @@ from dem_stitcher.datasets import get_global_dem_tile_extents
 from flask import Flask, Response, render_template, request
 
 from skitur.report import EmptyTrackError, build_analysis_payload
-from skitur.terrain import ExtentTooLargeError
+from skitur.terrain import ExtentTooLargeError, TerrainLoader
 
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024   # 10 MB
-RESPONSE_CACHE_BYTES = 50 * 1024 * 1024  # 50 MB per process
 
-app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+# Defaults — override via SKITUR_CONFIG env var pointing to a Python config file.
+app.config["DEM_CACHE_DIR"] = Path.home() / ".cache" / "skitur" / "dem"
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024     # 10 MB
+app.config["RESPONSE_CACHE_BYTES"] = 50 * 1024 * 1024   # 50 MB per process
+
+if os.environ.get("SKITUR_CONFIG"):
+    app.config.from_envvar("SKITUR_CONFIG")
 
 # In-memory LRU response cache keyed on raw GPX bytes, sized by response bytes.
 _cache: LRUCache[bytes, bytes] = LRUCache(
-    maxsize=RESPONSE_CACHE_BYTES,
+    maxsize=app.config["RESPONSE_CACHE_BYTES"],
     getsizeof=len,
 )
 _cache_lock = threading.Lock()
@@ -43,6 +48,8 @@ def _warmup_dem_indexes() -> None:
 
 
 _warmup_dem_indexes()
+
+_terrain_loader = TerrainLoader(cache_dir=app.config["DEM_CACHE_DIR"])
 
 
 @app.route("/")
@@ -82,7 +89,7 @@ def analyze():
         tmp_path = Path(tmp.name)
 
     try:
-        data = build_analysis_payload(tmp_path)
+        data = build_analysis_payload(tmp_path, terrain_loader=_terrain_loader)
         body = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY)
         with _cache_lock:
             _cache[gpx_bytes] = body
