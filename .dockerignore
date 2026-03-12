@@ -1,0 +1,15 @@
+.venv/
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+tests/
+scripts/
+docs/
+tickets/
+*.gpx
+*.html
+*.csv
+debug.html
+.mypy_cache/
+.ruff_cache/
