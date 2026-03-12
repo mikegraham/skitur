@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-CACHE_DIR="${SKITUR_DEM_CACHE:-/data/dem}"
+CACHE_DIR="$(python -c 'from skitur.config import DEM_CACHE_DIR; print(DEM_CACHE_DIR)')"
 SEED_MARKER="$CACHE_DIR/.seeded"
 
 # On first boot with a persistent volume, pre-fetch DEM tiles for

@@ -9,12 +9,13 @@ All accessed via dem-stitcher.
 
 import logging
 import math
-import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+
+from skitur import config
 from dem_stitcher import get_overlapping_dem_tiles, stitch_dem
 from dem_stitcher.exceptions import NoDEMCoverage
 
@@ -27,8 +28,7 @@ class ExtentTooLargeError(Exception):
     """Raised when the requested DEM extent exceeds the allowed limit."""
 
 # Persistent tile cache for dem-stitcher (it has no built-in cache).
-# Override with SKITUR_DEM_CACHE to use a mounted volume, etc.
-_TILE_CACHE_DIR = Path(os.environ.get("SKITUR_DEM_CACHE", Path.home() / ".cache" / "skitur" / "dem"))
+_TILE_CACHE_DIR = config.DEM_CACHE_DIR
 
 
 @dataclass(frozen=True)
