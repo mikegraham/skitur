@@ -3,12 +3,12 @@
 # and saving the rendered result.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GPX_FILE="${1:-$SCRIPT_DIR/tests/data/Twin_Lakes.gpx}"
-OUT_FILE="${2:-$SCRIPT_DIR/debug.html}"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+GPX_FILE="${1:-$REPO_DIR/tests/data/Twin_Lakes.gpx}"
+OUT_FILE="${2:-$REPO_DIR/debug.html}"
 PORT=5199
 
-cd "$SCRIPT_DIR"
+cd "$REPO_DIR"
 
 # Start Flask server in background
 .venv/bin/python3 -m skitur.app --port "$PORT" &
