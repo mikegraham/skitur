@@ -31,6 +31,8 @@ dev = [
     "pytest-socket",
     "ruff",
     "mypy",
+    "types-cachetools",
+    "geopandas",
     "matplotlib",
     "deptry",
 ]
@@ -84,7 +86,7 @@ select = ["E", "F", "W"]
 exclude = ["scripts", "verify_refactor\\.py", "time_refactor\\.py", "profile_old\\.py", "upstream", "\\.venv", "_refactor_baseline"]
 
 [tool.deptry.per_rule_ignores]
-DEP002 = ["gpxpy", "pytest", "pytest-cov", "pytest-ruff", "pytest-randomly", "pytest-mypy", "pytest-socket", "ruff", "mypy", "matplotlib", "deptry"]
+DEP002 = ["gpxpy", "pytest", "pytest-cov", "pytest-ruff", "pytest-randomly", "pytest-mypy", "pytest-socket", "ruff", "mypy", "types-cachetools", "geopandas", "matplotlib", "deptry"]
 
 [tool.mypy]
 python_version = "3.12"

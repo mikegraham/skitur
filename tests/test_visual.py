@@ -3,11 +3,10 @@
 Builds a debug page by injecting analysis JSON into the Flask template,
 serves it over HTTP, and verifies rendering in headless Chromium.
 
-CDN scripts (Plotly, Leaflet) are intercepted via Playwright's route API
+Static assets (Plotly, Leaflet) are intercepted via Playwright's route API
 and served from local copies so tests work without internet access.
 """
 
-import re
 import threading
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -20,7 +19,8 @@ from skitur.app import app
 from skitur.report import build_embedded_report_html
 
 GPX_FILE = Path(__file__).parent / "data" / "Twin_Lakes.gpx"
-PLOTLY_JS = Path(__file__).resolve().parent.parent / ".venv" / "lib" / "python3.13" / "site-packages" / "plotly" / "package_data" / "plotly.min.js"
+_STATIC = Path(__file__).resolve().parent.parent / "skitur" / "static"
+PLOTLY_JS = _STATIC / "plotly-3.3.1.min.js"
 LEAFLET_JS = Path(__file__).parent / "data" / "leaflet-1.9.4.js"
 LEAFLET_CSS = Path(__file__).parent / "data" / "leaflet-1.9.4.css"
 
@@ -92,9 +92,10 @@ def rendered_page():
     )
     # Strip SRI integrity attributes so locally-served CDN scripts
     # aren't blocked by hash mismatches.
+    import re
     html = re.sub(r'\s+integrity="[^"]*"', "", html)
 
-    # Write to temp dir and serve over HTTP (file:// blocks CDN scripts).
+    # Write to temp dir and serve over HTTP.
     import tempfile
 
     tmp = tempfile.NamedTemporaryFile(

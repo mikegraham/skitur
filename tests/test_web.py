@@ -656,7 +656,6 @@ def rendered_page(analysis_data):
     except ImportError:
         pytest.skip("playwright not installed")
 
-    import re
     import threading
     from functools import partial
     from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -673,6 +672,7 @@ def rendered_page(analysis_data):
     )
     # Strip SRI integrity attributes so locally-served CDN scripts
     # aren't blocked by hash mismatches.
+    import re
     html = re.sub(r'\s+integrity="[^"]*"', "", html)
 
     import tempfile
