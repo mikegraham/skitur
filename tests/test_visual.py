@@ -1,12 +1,16 @@
 """Visual regression tests using Playwright.
 
-Generates a debug.html by fetching the template from the Flask app,
-uploading Twin_Lakes.gpx for analysis, and injecting the JSON response
-into the template. Then loads it in headless Chromium and verifies that
-all visual elements render correctly.
+Builds a debug page by injecting analysis JSON into the Flask template,
+serves it over HTTP, and verifies rendering in headless Chromium.
+
+CDN scripts (Plotly, Leaflet) are intercepted via Playwright's route API
+and served from local copies so tests work without internet access.
 """
 
-import tempfile
+import re
+import threading
+from functools import partial
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 import pytest
@@ -16,6 +20,10 @@ from skitur.app import app
 from skitur.report import build_embedded_report_html
 
 GPX_FILE = Path(__file__).parent / "data" / "Twin_Lakes.gpx"
+PLOTLY_JS = Path(__file__).resolve().parent.parent / ".venv" / "lib" / "python3.13" / "site-packages" / "plotly" / "package_data" / "plotly.min.js"
+LEAFLET_JS = Path(__file__).parent / "data" / "leaflet-1.9.4.js"
+LEAFLET_CSS = Path(__file__).parent / "data" / "leaflet-1.9.4.css"
+
 pytestmark = pytest.mark.enable_socket
 
 
@@ -38,24 +46,33 @@ def _wait_for_report_render(page, timeout_ms: int = 30_000) -> None:
     )
 
 
-@pytest.fixture(scope="module")
-def debug_html_path():
-    """Build a self-contained debug.html from the Flask app.
+def _intercept_cdn(route):
+    """Serve CDN scripts from local files so tests work offline."""
+    url = route.request.url
+    if "plotly" in url and url.endswith(".js"):
+        route.fulfill(path=str(PLOTLY_JS), content_type="application/javascript")
+    elif "leaflet" in url and url.endswith(".js"):
+        route.fulfill(path=str(LEAFLET_JS), content_type="application/javascript")
+    elif "leaflet" in url and url.endswith(".css"):
+        route.fulfill(path=str(LEAFLET_CSS), content_type="text/css")
+    else:
+        route.continue_()
 
-    1. GET / to fetch the template HTML.
-    2. POST /api/analyze with Twin_Lakes.gpx to get the analysis JSON.
-    3. Inject a <script> that calls renderResults(data, "Twin_Lakes.gpx")
-       into the template, just before </body>.
-    4. Write the result to a temp file and return its path.
+
+@pytest.fixture(scope="module")
+def rendered_page():
+    """Build debug report, serve via local HTTP, render in Playwright.
+
+    Uses a lightweight stdlib HTTPServer (not pytest-flask's live_server)
+    because live_server runs in a separate process and can't share
+    in-memory state with the test.
     """
     client = app.test_client()
 
-    # Fetch the template
     resp = client.get("/")
     assert resp.status_code == 200
     template_html = resp.data.decode()
 
-    # Upload the GPX file for analysis
     with open(GPX_FILE, "rb") as f:
         resp = client.post(
             "/api/analyze",
@@ -73,30 +90,46 @@ def debug_html_path():
         hide_upload_section=True,
         hide_new_upload_button=False,
     )
+    # Strip SRI integrity attributes so locally-served CDN scripts
+    # aren't blocked by hash mismatches.
+    html = re.sub(r'\s+integrity="[^"]*"', "", html)
+
+    # Write to temp dir and serve over HTTP (file:// blocks CDN scripts).
+    import tempfile
 
     tmp = tempfile.NamedTemporaryFile(
         suffix=".html", delete=False, mode="w", prefix="debug_"
     )
     tmp.write(html)
     tmp.close()
+    tmp_path = Path(tmp.name)
 
-    yield Path(tmp.name)
+    handler = partial(SimpleHTTPRequestHandler, directory=str(tmp_path.parent))
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
 
-    Path(tmp.name).unlink(missing_ok=True)
-
-
-@pytest.fixture(scope="module")
-def rendered_page(debug_html_path):
-    """Launch headless Chromium, load the debug.html, wait for rendering."""
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1200, "height": 900})
-        page.goto(f"file://{debug_html_path}", wait_until="domcontentloaded")
+
+        # Intercept CDN requests to serve local copies (no internet needed)
+        page.route("**/cdn.plot.ly/**", _intercept_cdn)
+        page.route("**/unpkg.com/leaflet**", _intercept_cdn)
+
+        page.goto(
+            f"http://127.0.0.1:{port}/{tmp_path.name}",
+            wait_until="domcontentloaded",
+        )
         _wait_for_report_render(page)
 
         yield page
 
         browser.close()
+
+    server.shutdown()
+    tmp_path.unlink(missing_ok=True)
 
 
 def test_results_section_visible(rendered_page):
@@ -123,18 +156,15 @@ def test_map_has_slope_overlay(rendered_page):
     """The map should have a slope grid image overlay and a track canvas."""
     page = rendered_page
 
-    # Slope grid is now an <img> via L.imageOverlay (not a canvas)
     has_slope_img = page.evaluate("""() => {
         const imgs = document.querySelectorAll('#map img');
         for (const img of imgs) {
-            // imageOverlay uses a data:image/png URL
             if (img.src && img.src.startsWith('data:image/png')) return true;
         }
         return false;
     }""")
     assert has_slope_img, "No slope grid image overlay found in the map"
 
-    # Track is still drawn on a canvas
     canvases = page.query_selector_all("#map canvas")
     assert len(canvases) > 0, "No canvas elements found in the map (track layer)"
 
@@ -160,7 +190,6 @@ def test_score_total_has_number(rendered_page):
     score_total = page.query_selector(".score-total")
     assert score_total is not None, "Element with class 'score-total' not found"
     text = score_total.inner_text()
-    # Extract digits from the text (e.g. "72/100" -> "72")
     digits = "".join(c for c in text if c.isdigit())
     assert len(digits) > 0, f"Score total text '{text}' does not contain a number"
 
@@ -177,16 +206,9 @@ def test_stats_table_has_gps_points(rendered_page):
 
 
 def test_slope_overlay_survives_viewport_resize(rendered_page):
-    """Regression: slope shading must remain visible after viewport resize.
-
-    When the browser zoom changes (Ctrl+/-), the viewport resizes.
-    A previous bug caused the slope grid canvas to render as horizontal
-    stripes ("thin lines"). The fix was to switch from a per-frame canvas
-    to a static L.imageOverlay, which the browser scales natively.
-    """
+    """Regression: slope shading must remain visible after viewport resize."""
     page = rendered_page
 
-    # Verify slope image overlay is present at baseline
     baseline = page.evaluate("""() => {
         const imgs = document.querySelectorAll('#map img');
         for (const img of imgs) {
@@ -200,7 +222,6 @@ def test_slope_overlay_survives_viewport_resize(rendered_page):
     assert baseline["found"], "Slope grid image overlay not found at baseline"
     assert baseline["width"] > 100, f"Slope overlay too narrow: {baseline['width']}px"
 
-    # Resize viewport (simulates browser zoom CSS pixel shrinkage)
     page.set_viewport_size({"width": 800, "height": 600})
     page.wait_for_function("""() => {
         const imgs = document.querySelectorAll('#map img');
@@ -213,7 +234,6 @@ def test_slope_overlay_survives_viewport_resize(rendered_page):
         return false;
     }""")
 
-    # Verify slope image overlay is still visible after resize
     after = page.evaluate("""() => {
         const imgs = document.querySelectorAll('#map img');
         for (const img of imgs) {

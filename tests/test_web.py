@@ -633,6 +633,21 @@ def _wait_for_report_render(page, timeout_ms: int = 30_000) -> None:
     )
 
 
+def _intercept_cdn(route):
+    """Serve CDN scripts from local files so tests work offline."""
+    from tests.test_visual import LEAFLET_CSS, LEAFLET_JS, PLOTLY_JS
+
+    url = route.request.url
+    if "plotly" in url and url.endswith(".js"):
+        route.fulfill(path=str(PLOTLY_JS), content_type="application/javascript")
+    elif "leaflet" in url and url.endswith(".js"):
+        route.fulfill(path=str(LEAFLET_JS), content_type="application/javascript")
+    elif "leaflet" in url and url.endswith(".css"):
+        route.fulfill(path=str(LEAFLET_CSS), content_type="text/css")
+    else:
+        route.continue_()
+
+
 @pytest.fixture(scope="module")
 def rendered_page(analysis_data):
     """Render the page with Playwright and return page + error list."""
@@ -640,6 +655,11 @@ def rendered_page(analysis_data):
         from playwright.sync_api import sync_playwright
     except ImportError:
         pytest.skip("playwright not installed")
+
+    import re
+    import threading
+    from functools import partial
+    from http.server import HTTPServer, SimpleHTTPRequestHandler
 
     with open(Path(__file__).parent.parent / "skitur" / "templates" / "index.html") as f:
         template_html = f.read()
@@ -651,25 +671,42 @@ def rendered_page(analysis_data):
         hide_upload_section=True,
         hide_new_upload_button=False,
     )
+    # Strip SRI integrity attributes so locally-served CDN scripts
+    # aren't blocked by hash mismatches.
+    html = re.sub(r'\s+integrity="[^"]*"', "", html)
 
     import tempfile
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as f:
         f.write(html)
-        tmp_path = f.name
+        tmp_path = Path(f.name)
+
+    handler = partial(SimpleHTTPRequestHandler, directory=str(tmp_path.parent))
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
 
     errors = []
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1200, "height": 900})
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"file://{tmp_path}", wait_until="domcontentloaded")
+
+        page.route("**/cdn.plot.ly/**", _intercept_cdn)
+        page.route("**/unpkg.com/leaflet**", _intercept_cdn)
+
+        page.goto(
+            f"http://127.0.0.1:{port}/{tmp_path.name}",
+            wait_until="domcontentloaded",
+        )
         _wait_for_report_render(page)
 
         yield page, errors
 
         browser.close()
 
-    Path(tmp_path).unlink(missing_ok=True)
+    server.shutdown()
+    tmp_path.unlink(missing_ok=True)
 
 
 def test_no_js_errors(rendered_page):
