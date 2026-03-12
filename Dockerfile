@@ -19,4 +19,4 @@ RUN python -c "from dem_stitcher.datasets import get_global_dem_tile_extents; \
 
 EXPOSE 8000
 
-CMD ["gunicorn", "skitur.app:app", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "120"]
+CMD ["gunicorn", "skitur.app:app", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120"]
