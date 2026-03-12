@@ -1,8 +1,16 @@
+from unittest.mock import patch
+
+import geopandas as gpd
 import numpy as np
 import pytest
+from dem_stitcher.exceptions import NoDEMCoverage
+from shapely.geometry import box as shapely_box
 
 from skitur.terrain import (
     ExtentTooLargeError,
+    Terrain,
+    _DEM_SOURCES,
+    _source_covers_bounds,
     load_dem_for_bounds,
 )
 
@@ -110,3 +118,94 @@ def test_extent_limit_checks_raw_bounds_not_padded():
     # This should NOT raise ExtentTooLargeError. It will proceed to the
     # DEM fetch (which hits the module-level cache from the fixture).
     load_dem_for_bounds(45.30, 45.40, -121.75, -121.65)
+
+
+# -- DEM source fallback tests (mocked, no network) --
+
+
+
+def _make_terrain_from_source(source, lat_min, lat_max, lon_min, lon_max):
+    """Build a minimal Terrain for the given bounds (test helper)."""
+    lons = np.linspace(lon_min, lon_max, 10)
+    lats = np.linspace(lat_min, lat_max, 10)
+    data = np.full((10, 10), 1000.0, dtype=np.float32)
+    return Terrain(lons, lats, data)
+
+
+def test_dem_fallback_uses_second_source_on_no_coverage():
+    """When the first DEM source has no coverage, the next source is tried."""
+    fetch_log = []
+
+    def mock_covers(source, fetch_bounds):
+        return source.name != _DEM_SOURCES[0].name
+
+    def mock_fetch(source, lat_min, lat_max, lon_min, lon_max):
+        fetch_log.append(source.name)
+        return _make_terrain_from_source(source, lat_min, lat_max, lon_min, lon_max)
+
+    with patch("skitur.terrain._source_covers_bounds", side_effect=mock_covers), \
+         patch("skitur.terrain._fetch_dem", side_effect=mock_fetch):
+        dem = load_dem_for_bounds(45.30, 45.35, -121.70, -121.65)
+
+    # First source skipped, second source fetched.
+    assert fetch_log == [_DEM_SOURCES[1].name]
+    assert isinstance(dem, Terrain)
+
+
+def test_dem_fallback_raises_when_all_sources_fail():
+    """When no DEM source covers the bounds, NoDEMCoverage is raised."""
+    with patch("skitur.terrain._source_covers_bounds", return_value=False):
+        with pytest.raises(NoDEMCoverage, match="No DEM source covers"):
+            load_dem_for_bounds(45.30, 45.35, -121.70, -121.65)
+
+
+def test_dem_source_order_is_best_first():
+    """Sources should be ordered from best to worst resolution."""
+    resolutions = [s.resolution for s in _DEM_SOURCES]
+    assert resolutions == sorted(resolutions), (
+        f"DEM sources not in best-first order: {[s.name for s in _DEM_SOURCES]}"
+    )
+
+
+def test_partial_coverage_rejected():
+    """A source whose tiles only partially cover the bounds should be skipped.
+
+    Simulates the US/Canada border: 3DEP covers up to 49°N but the route
+    extends to 49.08°N. The tiles don't fully contain the request, so
+    _source_covers_bounds returns False and the caller falls through to GLO-30.
+    """
+    # Request straddles 49°N (US/Canada border)
+    lat_min, lat_max = 48.90, 49.10
+    lon_min, lon_max = -121.80, -121.60
+
+    source_3dep = _DEM_SOURCES[0]
+    fetch_bounds = [lon_min - source_3dep.resolution, lat_min - source_3dep.resolution,
+                    lon_max + source_3dep.resolution, lat_max + source_3dep.resolution]
+
+    # 3DEP tile covers only up to 49°N (doesn't contain full request)
+    partial_tile = gpd.GeoDataFrame(
+        {"tile_id": ["partial"], "url": ["fake"], "dem_name": ["3dep"]},
+        geometry=[shapely_box(lon_min - 1, lat_min - 1, lon_max + 1, 49.0)],
+    )
+
+    with patch("skitur.terrain.get_overlapping_dem_tiles", return_value=partial_tile):
+        assert not _source_covers_bounds(source_3dep, fetch_bounds)
+
+
+def test_grid_spacing_derived_from_coords():
+    """Terrain should derive grid spacing from coordinate arrays, not from parameters."""
+    # ~10m resolution at 45°N: dlat ≈ 1/10800 deg
+    dlat = 1 / 10800
+    dlon = 1 / 10800
+    lats = np.arange(45.0, 45.0 + 10 * dlat, dlat)
+    lons = np.arange(-121.0, -121.0 + 10 * dlon, dlon)
+    data = np.zeros((len(lats), len(lons)), dtype=np.float32)
+
+    t = Terrain(lons, lats, data)
+
+    # NS spacing: dlat * 111120 ≈ 10.3m
+    assert 9.5 < t.grid_spacing_ns < 11.0
+    # EW spacing: dlon * 111120 * cos(45°) ≈ 7.3m
+    assert 6.5 < t.grid_spacing_ew < 8.0
+    # EW must be smaller than NS at 45°N
+    assert t.grid_spacing_ew < t.grid_spacing_ns

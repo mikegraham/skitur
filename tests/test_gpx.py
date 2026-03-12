@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from skitur.analyze import TrackPoint, analyze_track
+from skitur.analyze import analyze_track
 from skitur.gpx import load_track
 from skitur.terrain import load_dem_for_bounds
 
@@ -79,7 +79,7 @@ def test_analyze_all_points_have_ground_slope(dem):
 class _VoidTerrain:
     """Terrain stub that returns NaN for some elevations (simulates DEM voids)."""
 
-    cell_size = 10.0
+    grid_spacing_ns = 10.0
 
     def get_elevations(self, lats, lons):
         elevs = np.full(len(lats), 2000.0)
@@ -107,7 +107,7 @@ def test_analyze_track_with_dem_void():
         (45.373, -121.70),
         (45.374, -121.70),
     ]
-    analysis = analyze_track(points, _VoidTerrain(), resample=False)
+    analysis = analyze_track(points, _VoidTerrain(), resample=False)  # type: ignore[arg-type]
     mid = len(analysis) // 2
 
     # The void point should have elevation=None
