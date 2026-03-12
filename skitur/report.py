@@ -181,7 +181,9 @@ def _build_response(
     }
 
 
-def _compute_analysis(gpx_path: Path, *, terrain_loader: TerrainLoader) -> tuple[list[TrackPoint], dict, TourScore, dict]:
+def _compute_analysis(
+    gpx_path: Path, *, terrain_loader: TerrainLoader,
+) -> tuple[list[TrackPoint], dict, TourScore, dict]:
     """Run full analysis for one GPX path.
 
     Overlaps independent work: slope grid (expensive, ~1.5s) runs concurrently
@@ -295,7 +297,9 @@ def build_embedded_report_html(
     return template_html.replace("</body>", inject + "</body>")
 
 
-def generate_report(gpx_path: Path, output_path: Path | None = None, *, terrain_loader: TerrainLoader) -> Path:
+def generate_report(
+    gpx_path: Path, output_path: Path | None = None, *, terrain_loader: TerrainLoader,
+) -> Path:
     """Generate a self-contained static HTML report for a GPX file."""
     if output_path is None:
         output_path = gpx_path.with_name(gpx_path.stem + "_report.html")

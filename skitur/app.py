@@ -15,6 +15,7 @@ from dem_stitcher.datasets import get_global_dem_tile_extents
 from flask import Flask, Response, render_template, request
 
 from skitur.report import EmptyTrackError, build_analysis_payload
+from dem_stitcher.exceptions import NoDEMCoverage
 from skitur.terrain import ExtentTooLargeError, TerrainLoader
 
 logger = logging.getLogger(__name__)
@@ -109,8 +110,12 @@ def analyze():
         return _json_error("GPX file contains no usable track points")
     except ExtentTooLargeError as exc:
         return _json_error(str(exc), 422)
+    except NoDEMCoverage:
+        return _json_error(
+            "No elevation data available for this area. Try a different location.", 422
+        )
     except Exception:
         logger.exception("Analysis failed")
-        return _json_error("Analysis failed. Please check your GPX file.", 500)
+        return _json_error("Analysis failed. Please try again.", 500)
     finally:
         tmp_path.unlink(missing_ok=True)
