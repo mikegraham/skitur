@@ -48,8 +48,7 @@ def analyze_track(
 
     # DEM-only elevation path (simpler and deterministic across GPX sources).
     elevations = dem.get_elevations(lats_arr, lons_arr)
-    cell_size = dem.cell_size
-    smooth_distance = cell_size * 3  # 30m for 3DEP, 90m for GLO-30
+    smooth_distance = dem.grid_spacing_ns * 3  # 30m for 3DEP, 90m for GLO-30
     elevations = _smooth_elevations(
         elevations,
         cumulative_dists,
@@ -69,7 +68,7 @@ def analyze_track(
     ]
 
     # Minimum slope baseline in DEM cells.
-    min_slope_baseline = cell_size * 2  # 20m for 3DEP, 60m for GLO-30
+    min_slope_baseline = dem.grid_spacing_ns * 2  # 20m for 3DEP, 60m for GLO-30
 
     # TODO(#061): Keep this loop-based baseline slope calculation for now.
     # Next refactor should prioritize correctness over raw speed:

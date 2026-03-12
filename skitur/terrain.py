@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from dem_stitcher import stitch_dem
+from dem_stitcher import get_overlapping_dem_tiles, stitch_dem
+from dem_stitcher.exceptions import NoDEMCoverage
 
 from skitur.geo import METERS_PER_DEG_LAT
 
@@ -24,9 +25,6 @@ logger = logging.getLogger(__name__)
 class ExtentTooLargeError(Exception):
     """Raised when the requested DEM extent exceeds the allowed limit."""
 
-# EPSG:4326 = WGS84 geographic coordinate system (lat/lon)
-CRS_WGS84 = 4326
-
 # Persistent tile cache for dem-stitcher (it has no built-in cache)
 _TILE_CACHE_DIR = Path.home() / ".cache" / "skitur" / "dem"
 
@@ -34,27 +32,14 @@ _TILE_CACHE_DIR = Path.home() / ".cache" / "skitur" / "dem"
 @dataclass(frozen=True)
 class _DEMSource:
     name: str
-    cell_size: float  # meters
     resolution: float  # degrees per pixel
 
 
-_3DEP = _DEMSource("3dep", cell_size=10.0, resolution=1 / 3600 / 3)
-_GLO30 = _DEMSource("glo_30", cell_size=30.0, resolution=1 / 3600)
+_3DEP = _DEMSource("3dep", resolution=1 / 3600 / 3)
+_GLO30 = _DEMSource("glo_30", resolution=1 / 3600)
+_GLO90 = _DEMSource("glo_90", resolution=3 / 3600)
 
-# US bounding boxes where 3DEP (10m) is available: (lat_min, lat_max, lon_min, lon_max)
-_US_BOUNDS = [
-    (24, 50, -125, -66),    # CONUS
-    (51, 72, -180, -129),   # Alaska
-    (18, 23, -161, -154),   # Hawaii
-]
-
-
-def _choose_dem_source(lat: float, lon: float) -> _DEMSource:
-    """Pick the best DEM source for a location (3DEP in the US, GLO-30 elsewhere)."""
-    for lat_min, lat_max, lon_min, lon_max in _US_BOUNDS:
-        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-            return _3DEP
-    return _GLO30
+_DEM_SOURCES = [_3DEP, _GLO30, _GLO90]  # best first, with fallback
 
 
 def _fractional_axis_coords(values: np.ndarray, axis: np.ndarray) -> np.ndarray:
@@ -75,13 +60,23 @@ class Terrain:
     """
 
     def __init__(self, x_coords: np.ndarray, y_coords: np.ndarray,
-                 data: np.ndarray, cell_size: float) -> None:
+                 data: np.ndarray) -> None:
         self.x_coords = x_coords    # longitude values (sorted ascending)
         self.y_coords = y_coords    # latitude values (sorted ascending)
         self.data = data            # elevation data[y, x]
-        self.cell_size = cell_size
         self._grad_dz_dx: np.ndarray | None = None
         self._grad_dz_dy: np.ndarray | None = None
+
+        # Derived from coordinate spacing; cached to avoid recomputing in gradient hot paths.
+        if len(y_coords) >= 2:
+            dlat = float(y_coords[1] - y_coords[0])
+            dlon = float(x_coords[1] - x_coords[0])
+            center_lat = float(y_coords[len(y_coords) // 2])
+            self.grid_spacing_ns = dlat * METERS_PER_DEG_LAT
+            self.grid_spacing_ew = dlon * METERS_PER_DEG_LAT * math.cos(math.radians(center_lat))
+        else:
+            self.grid_spacing_ns = 0.0
+            self.grid_spacing_ew = 0.0
 
     @property
     def native_max_dimension(self) -> int:
@@ -109,19 +104,14 @@ class Terrain:
 
         # Horn's method on the full grid. Output is 2 cells smaller in each
         # dimension; pad with NaN to keep the same shape/indexing.
-        # East-west cell spacing shrinks with latitude (cos correction).
-        center_lat = float(self.y_coords[len(self.y_coords) // 2])
-        cell_size_x = self.cell_size * math.cos(math.radians(center_lat))
-        cell_size_y = self.cell_size
-
         dz_dx_core = (
             (elev[:-2, 2:] + 2*elev[1:-1, 2:] + elev[2:, 2:]) -
             (elev[:-2, :-2] + 2*elev[1:-1, :-2] + elev[2:, :-2])
-        ) / (8 * cell_size_x)
+        ) / (8 * self.grid_spacing_ew)
         dz_dy_core = (
             (elev[2:, :-2] + 2*elev[2:, 1:-1] + elev[2:, 2:]) -
             (elev[:-2, :-2] + 2*elev[:-2, 1:-1] + elev[:-2, 2:])
-        ) / (8 * cell_size_y)
+        ) / (8 * self.grid_spacing_ns)
 
         rows, cols = elev.shape
         self._grad_dz_dx = np.full((rows, cols), np.nan, dtype=np.float32)
@@ -297,18 +287,14 @@ class Terrain:
         elev_sub = self.data[yi_min:yi_max+1, xi_min:xi_max+1]
 
         # Compute slopes at native resolution using Horn's method
-        center_lat = (lat_min + lat_max) / 2
-        cell_size_y = self.cell_size  # meters
-        cell_size_x = self.cell_size * math.cos(math.radians(center_lat))
-
         dz_dx = (
             (elev_sub[:-2, 2:] + 2*elev_sub[1:-1, 2:] + elev_sub[2:, 2:]) -
             (elev_sub[:-2, :-2] + 2*elev_sub[1:-1, :-2] + elev_sub[2:, :-2])
-        ) / (8 * cell_size_x)
+        ) / (8 * self.grid_spacing_ew)
         dz_dy = (
             (elev_sub[2:, :-2] + 2*elev_sub[2:, 1:-1] + elev_sub[2:, 2:]) -
             (elev_sub[:-2, :-2] + 2*elev_sub[:-2, 1:-1] + elev_sub[:-2, 2:])
-        ) / (8 * cell_size_y)
+        ) / (8 * self.grid_spacing_ns)
 
         slope_native = np.degrees(np.arctan(np.hypot(dz_dx, dz_dy)))
 
@@ -493,6 +479,76 @@ def _stitch_dem_fast(stitch_fn, **kwargs):
         rasterio.open = _orig_open
 
 
+def _source_covers_bounds(source: _DEMSource, fetch_bounds: list[float]) -> bool:
+    """Check if a DEM source's tiles fully cover the requested bounds.
+
+    Prevents partial NaN results when a route straddles a coverage
+    boundary (e.g. US/Canada border with 3DEP).
+    """
+    from shapely.geometry import box as shapely_box
+
+    tiles = get_overlapping_dem_tiles(fetch_bounds, source.name)
+    if tiles.empty:
+        return False
+    return tiles.geometry.union_all().contains(shapely_box(*fetch_bounds))
+
+
+def _fetch_dem(
+    source: _DEMSource,
+    lat_min: float, lat_max: float,
+    lon_min: float, lon_max: float,
+) -> Terrain:
+    """Fetch DEM tiles for one source and build a Terrain object.
+
+    Caller should check _source_covers_bounds first.
+    Must be called under _dem_lock.
+    """
+    _TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Expand bounds by one pixel so that pixel-center coordinates
+    # (from _coords_from_profile) fully cover the requested extent.
+    # Without this, the outermost pixel centers fall half a pixel
+    # inside the tile edge, causing covers() to fail on repeat calls.
+    fetch_bounds = [lon_min - source.resolution, lat_min - source.resolution,
+                    lon_max + source.resolution, lat_max + source.resolution]
+
+    logger.info("Fetching DEM (%s) for bounds [%.4f, %.4f, %.4f, %.4f]",
+                 source.name, *fetch_bounds)
+
+    tile_cache = _TILE_CACHE_DIR / source.name
+    tile_cache.mkdir(parents=True, exist_ok=True)
+    stitch_kwargs = dict(
+        bounds=fetch_bounds,
+        dem_name=source.name,
+        dst_ellipsoidal_height=False,  # orthometric heights
+        dst_area_or_point="Point",
+        dst_resolution=source.resolution,
+        dst_tile_dir=tile_cache,
+    )
+    data, profile = _stitch_dem_fast(stitch_dem, **stitch_kwargs)
+
+    # Squeeze band dimension if present (stitch_dem returns 3D: [1, rows, cols])
+    if data.ndim == 3:
+        data = data[0]
+
+    x_coords, y_coords = _coords_from_profile(profile, data)
+
+    # Ensure coords are sorted ascending (required for searchsorted)
+    if len(x_coords) > 1 and x_coords[0] > x_coords[-1]:
+        x_coords = x_coords[::-1]
+        data = data[:, ::-1]
+    if len(y_coords) > 1 and y_coords[0] > y_coords[-1]:
+        y_coords = y_coords[::-1]
+        data = data[::-1, :]
+
+    if not np.issubdtype(data.dtype, np.floating):
+        raise TypeError(
+            f"DEM data has non-float dtype {data.dtype}; expected float32 or float64"
+        )
+
+    return Terrain(x_coords=x_coords, y_coords=y_coords, data=data)
+
+
 def load_dem_for_bounds(
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, padding: float = 0.01
 ) -> Terrain:
@@ -518,57 +574,13 @@ def load_dem_for_bounds(
     lon_max += padding
 
     with _dem_lock:
-        center_lat = (lat_min + lat_max) / 2
-        center_lon = (lon_min + lon_max) / 2
-        source = _choose_dem_source(center_lat, center_lon)
+        # Try sources best-first, skip those that don't fully cover the bounds.
+        for source in _DEM_SOURCES:
+            fetch_bounds = [lon_min - source.resolution, lat_min - source.resolution,
+                            lon_max + source.resolution, lat_max + source.resolution]
+            if _source_covers_bounds(source, fetch_bounds):
+                return _fetch_dem(source, lat_min, lat_max, lon_min, lon_max)
+            logger.info("DEM source %s doesn't fully cover bounds; trying next", source.name)
 
-        _TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-        # Expand bounds by one pixel so that pixel-center coordinates
-        # (from _coords_from_profile) fully cover the requested extent.
-        # Without this, the outermost pixel centers fall half a pixel
-        # inside the tile edge, causing covers() to fail on repeat calls.
-        fetch_bounds = [lon_min - source.resolution, lat_min - source.resolution,
-                        lon_max + source.resolution, lat_max + source.resolution]
-
-        logger.info("Fetching DEM (%s) for bounds [%.4f, %.4f, %.4f, %.4f]",
-                     source.name, *fetch_bounds)
-
-        tile_cache = _TILE_CACHE_DIR / source.name
-        tile_cache.mkdir(parents=True, exist_ok=True)
-        stitch_kwargs = dict(
-            bounds=fetch_bounds,
-            dem_name=source.name,
-            dst_ellipsoidal_height=False,  # orthometric heights
-            dst_area_or_point="Point",
-            dst_resolution=source.resolution,
-            dst_tile_dir=tile_cache,
-        )
-        data, profile = _stitch_dem_fast(stitch_dem, **stitch_kwargs)
-
-        # Squeeze band dimension if present (stitch_dem returns 3D: [1, rows, cols])
-        if data.ndim == 3:
-            data = data[0]
-
-        x_coords, y_coords = _coords_from_profile(profile, data)
-
-        # Ensure coords are sorted ascending (required for searchsorted)
-        if len(x_coords) > 1 and x_coords[0] > x_coords[-1]:
-            x_coords = x_coords[::-1]
-            data = data[:, ::-1]
-        if len(y_coords) > 1 and y_coords[0] > y_coords[-1]:
-            y_coords = y_coords[::-1]
-            data = data[::-1, :]
-
-        if not np.issubdtype(data.dtype, np.floating):
-            raise TypeError(
-                f"DEM data has non-float dtype {data.dtype}; expected float32 or float64"
-            )
-
-        terrain = Terrain(
-            x_coords=x_coords,
-            y_coords=y_coords,
-            data=data,
-            cell_size=source.cell_size,
-        )
-        return terrain
+        raise NoDEMCoverage(f"No DEM source covers bounds [{lat_min:.4f}, {lat_max:.4f}, "
+                            f"{lon_min:.4f}, {lon_max:.4f}]")

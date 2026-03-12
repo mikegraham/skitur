@@ -14,6 +14,7 @@ dependencies = [
     "orjson",
     "rasterio",
     "scipy",
+    "shapely",
 ]
 
 [project.optional-dependencies]
