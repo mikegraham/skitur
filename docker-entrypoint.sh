@@ -9,7 +9,7 @@ SEED_MARKER="$CACHE_DIR/.seeded"
 if [ ! -f "$SEED_MARKER" ]; then
     echo "First boot — seeding DEM cache at $CACHE_DIR"
     mkdir -p "$CACHE_DIR"
-    python scripts/preseed_dem_cache.py --download --max-gb 4 || true
+    python scripts/preseed_dem_cache.py --download --max-gb 24 || true
     touch "$SEED_MARKER"
     echo "DEM seeding complete"
 fi

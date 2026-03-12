@@ -33,8 +33,8 @@ TRAIL_CACHE = Path("_preseed_trail_counts.json")
 TILE_SIZE_3DEP_MB = 435
 TILE_SIZE_GLO30_MB = 25
 
-# US trails count 2x for prioritization (we want strong US coverage).
-US_WEIGHT = 10.0
+# All regions weighted equally — sort by raw trail density.
+US_WEIGHT = 1.0
 
 
 def _is_us_coverage(lat: float, lon: float) -> bool:
