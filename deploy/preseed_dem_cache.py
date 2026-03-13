@@ -5,9 +5,9 @@ Queries OpenStreetMap for nordic/skitour piste ways, bins them into 1x1 degree
 tiles, and downloads DEMs in order of trail density (US trails weighted 2x).
 
 Usage:
-    .venv/bin/python scripts/preseed_dem_cache.py                  # show plan
-    .venv/bin/python scripts/preseed_dem_cache.py --download        # download all
-    .venv/bin/python scripts/preseed_dem_cache.py --max-gb 30       # cap at 30GB
+    .venv/bin/python deploy/preseed_dem_cache.py                  # show plan
+    .venv/bin/python deploy/preseed_dem_cache.py --download        # download all
+    .venv/bin/python deploy/preseed_dem_cache.py --max-gb 30       # cap at 30GB
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-TRAIL_CACHE = Path("_preseed_trail_counts.json")
+TRAIL_CACHE = Path(__file__).parent / "trail_counts.json"
 
 # Approximate tile sizes on disk (measured from existing cache).
 TILE_SIZE_3DEP_MB = 435

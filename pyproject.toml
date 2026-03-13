@@ -135,9 +135,24 @@ ignore = [
     "UP035",    # deprecated-import
     "PERF401",  # manual-list-comprehension
 ]
+"deploy/*.py" = [
+    "S101", "S110", "E501", "E701",
+    "BLE001",   # blind-except (best-effort scripts)
+    "EM102",    # f-string-in-exception
+    "PTH104",   # os-rename
+    "FBT",      # boolean args
+    "PLC0415",  # import-outside-top-level (deferred for optional deps)
+    "PERF203",  # try-except-in-loop
+    "PERF401",  # manual-list-comprehension
+    "PLW2901",  # loop var overwritten
+    "SIM103",   # needless-bool
+    "SIM108",   # ternary
+    "TRY003",   # raise-vanilla-args
+    "TRY300",   # try-consider-else
+]
 
 [tool.deptry]
-exclude = ["scripts", "verify_refactor\\.py", "time_refactor\\.py", "profile_old\\.py", "upstream", "\\.venv", "_refactor_baseline"]
+exclude = ["scripts", "deploy", "verify_refactor\\.py", "time_refactor\\.py", "profile_old\\.py", "upstream", "\\.venv", "_refactor_baseline"]
 
 [tool.deptry.per_rule_ignores]
 DEP002 = ["pytest", "pytest-cov", "pytest-ruff", "pytest-randomly", "pytest-mypy", "pytest-socket", "ruff", "mypy", "types-cachetools", "matplotlib", "deptry"]

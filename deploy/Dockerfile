@@ -13,7 +13,7 @@ COPY pyproject.toml ./
 COPY skitur/ skitur/
 COPY deploy/config/ deploy/config/
 COPY scripts/ scripts/
-COPY _preseed_trail_counts.json ./
+COPY deploy/preseed_dem_cache.py deploy/trail_counts.json deploy/
 COPY deploy/docker-entrypoint.sh ./
 
 RUN pip install --no-cache-dir . gunicorn requests
