@@ -214,6 +214,28 @@ def _clean_staging(cache_dir: Path) -> int:
     return count
 
 
+def _purge_corrupt_tiles(cache_dir: Path) -> int:
+    """Delete cached .tif files that rasterio can't read.
+
+    Corrupt tiles stick around forever since the downloader skips
+    files that already exist. Purging them lets the next download
+    attempt fetch a clean copy.
+    """
+    import rasterio
+
+    deleted = 0
+    for tif in sorted(cache_dir.rglob("*.tif")):
+        try:
+            with rasterio.open(tif) as ds:
+                # Read one pixel to verify data is decodable, not just the header.
+                ds.read(1, window=rasterio.windows.Window(0, 0, 1, 1))
+        except Exception:
+            print(f"  Deleting corrupt tile: {tif.name}")
+            tif.unlink()
+            deleted += 1
+    return deleted
+
+
 def download_tile(lat_floor: int, lon_floor: int, cache_dir: Path) -> bool:
     """Download the single DEM source tile for a 1x1 degree cell.
 
@@ -333,6 +355,10 @@ def main() -> int:
     removed = _clean_staging(args.cache_dir)
     if removed:
         print(f"Cleaned {removed} partial tile(s) from interrupted download")
+
+    corrupt = _purge_corrupt_tiles(args.cache_dir)
+    if corrupt:
+        print(f"Purged {corrupt} corrupt tile(s) from cache")
 
     print(f"\nDownloading {total} tiles...\n")
     ok = 0
