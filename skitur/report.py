@@ -10,17 +10,9 @@ import contourpy
 import numpy as np
 import orjson
 
-from skitur.analyze import TrackPoint, analyze_track
-from skitur.geo import METERS_PER_DEG_LAT
-from skitur.gpx import load_track
-from skitur.mapdata import (
-    _sample_elevation_grid,
-    _sample_slope_grid,
-    choose_contour_steps_ft,
-)
+from skitur import analyze, geo, gpx, mapdata, terrain
 from skitur.score import TourScore, score_tour
 from skitur.stats import compute_stats
-from skitur.terrain import TerrainLoader
 
 GRID_MIN_SCALE = 1.3
 GRID_SQUARE_EXTRA_LIMIT_M = 5000.0
@@ -59,8 +51,8 @@ def _grid_bounds_for_shading(
 
     square_side_scaled = max(base_lat_span, base_lon_span_scaled)
 
-    extra_lat_m = ((square_side_scaled - base_lat_span) / 2) * METERS_PER_DEG_LAT
-    extra_lon_m = ((square_side_scaled - base_lon_span_scaled) / 2) * METERS_PER_DEG_LAT
+    extra_lat_m = ((square_side_scaled - base_lat_span) / 2) * geo.METERS_PER_DEG_LAT
+    extra_lon_m = ((square_side_scaled - base_lon_span_scaled) / 2) * geo.METERS_PER_DEG_LAT
 
     should_square = max(extra_lat_m, extra_lon_m) <= square_extra_limit_m
 
@@ -97,7 +89,7 @@ def _compute_contours(grids: dict) -> dict:
     if len(valid) == 0:
         return {"minor": [], "major": [], "minor_step_ft": None, "major_step_ft": None}
 
-    minor_step, major_step = choose_contour_steps_ft(float(valid.min()), float(valid.max()))
+    minor_step, major_step = mapdata.choose_contour_steps_ft(float(valid.min()), float(valid.max()))
     start = int(np.floor(valid.min() / minor_step) * minor_step)
     end = int(np.ceil(valid.max() / minor_step) * minor_step)
     all_levels = list(range(start, end + 1, minor_step))
@@ -132,7 +124,7 @@ def _compute_contours(grids: dict) -> dict:
 
 
 def _build_response(
-    points: list[TrackPoint],
+    points: list[analyze.TrackPoint],
     stats: dict,
     score: TourScore,
     grids: dict,
@@ -184,14 +176,14 @@ def _build_response(
 
 
 def _compute_analysis(
-    gpx_path: Path, *, terrain_loader: TerrainLoader,
-) -> tuple[list[TrackPoint], dict, TourScore, dict]:
+    gpx_path: Path, *, terrain_loader: terrain.TerrainLoader,
+) -> tuple[list[analyze.TrackPoint], dict, TourScore, dict]:
     """Run full analysis for one GPX path.
 
     Overlaps independent work: slope grid (expensive, ~1.5s) runs concurrently
     with analyze_track + contour extraction.
     """
-    raw_points = load_track(gpx_path)
+    raw_points = gpx.load_track(gpx_path)
     if len(raw_points) < 2:
         raise EmptyTrackError("GPX file contains no usable track points")
 
@@ -221,15 +213,15 @@ def _compute_analysis(
     # Kick off slope grid first -- it's the critical path (~1.5s)
     with ThreadPoolExecutor(max_workers=2) as pool:
         slope_future = pool.submit(
-            _sample_slope_grid, dem, lat_min, lat_max, lon_min, lon_max, slope_resolution
+            mapdata.sample_slope_grid, dem, lat_min, lat_max, lon_min, lon_max, slope_resolution
         )
 
         # While slope grid computes, do track analysis + elevation grid + contours
-        points = analyze_track(raw_points, dem=dem)
+        points = analyze.analyze_track(raw_points, dem=dem)
         stats = compute_stats(points)
         score = score_tour(points, dem=dem)
 
-        contour_lon_mesh, contour_lat_mesh, contour_elev_grid_ft = _sample_elevation_grid(
+        contour_lon_mesh, contour_lat_mesh, contour_elev_grid_ft = mapdata.sample_elevation_grid(
             dem, lat_min, lat_max, lon_min, lon_max, contour_resolution
         )
 
@@ -252,7 +244,7 @@ def _compute_analysis(
     return points, stats, score, grids
 
 
-def build_analysis_payload(gpx_path: Path, *, terrain_loader: TerrainLoader) -> dict:
+def build_analysis_payload(gpx_path: Path, *, terrain_loader: terrain.TerrainLoader) -> dict:
     """Compute report/API payload from a GPX file path."""
     points, stats, score, grids = _compute_analysis(gpx_path, terrain_loader=terrain_loader)
     return _build_response(points, stats, score, grids)
@@ -298,7 +290,7 @@ def build_embedded_report_html(
 
 
 def generate_report(
-    gpx_path: Path, output_path: Path | None = None, *, terrain_loader: TerrainLoader,
+    gpx_path: Path, output_path: Path | None = None, *, terrain_loader: terrain.TerrainLoader,
 ) -> Path:
     """Generate a self-contained static HTML report for a GPX file."""
     if output_path is None:

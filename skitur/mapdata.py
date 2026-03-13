@@ -6,8 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from skitur.analyze import TrackPoint
-from skitur.terrain import Terrain
+from skitur import analyze, terrain
 
 M_TO_FT = 3.28084
 
@@ -24,8 +23,8 @@ def choose_contour_steps_ft(elev_ft_min: float, elev_ft_max: float) -> tuple[int
     return minor, minor * 5
 
 
-def _sample_elevation_grid(
-    dem: Terrain,
+def sample_elevation_grid(
+    dem: terrain.Terrain,
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, resolution: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Sample elevation data for a region. Returns meshes and elevation grid in feet."""
@@ -36,8 +35,8 @@ def _sample_elevation_grid(
     return lon_mesh, lat_mesh, elev_grid_ft
 
 
-def _sample_slope_grid(
-    dem: Terrain,
+def sample_slope_grid(
+    dem: terrain.Terrain,
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, resolution: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Sample ground slope data for a region."""
@@ -48,8 +47,8 @@ def _sample_slope_grid(
 
 
 def compute_map_grids(
-    dem: Terrain,
-    points: list[TrackPoint],
+    dem: terrain.Terrain,
+    points: list[analyze.TrackPoint],
     padding: float = 0.003,
     resolution: int = 400,
     contour_resolution: int | None = None,
@@ -67,10 +66,10 @@ def compute_map_grids(
         lat_min, lat_max = min(lats) - padding, max(lats) + padding
         lon_min, lon_max = min(lons) - padding, max(lons) + padding
 
-    contour_lon_mesh, contour_lat_mesh, contour_elev_grid_ft = _sample_elevation_grid(
+    contour_lon_mesh, contour_lat_mesh, contour_elev_grid_ft = sample_elevation_grid(
         dem, lat_min, lat_max, lon_min, lon_max, contour_resolution
     )
-    lon_mesh, lat_mesh, slope_grid = _sample_slope_grid(
+    lon_mesh, lat_mesh, slope_grid = sample_slope_grid(
         dem, lat_min, lat_max, lon_min, lon_max, resolution
     )
 
