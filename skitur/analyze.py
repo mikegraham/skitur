@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from skitur.geo import equirectangular_distance, resample_track, RESAMPLE_THRESHOLD_M
+from skitur.geo import RESAMPLE_THRESHOLD_M, equirectangular_distance, resample_track
 from skitur.terrain import Terrain
 
 
@@ -21,22 +21,17 @@ class TrackPoint:
 def analyze_track(
     points: list[tuple],
     dem: Terrain,
-    resample: bool = True,
-    max_spacing_m: float = RESAMPLE_THRESHOLD_M,
 ) -> list[TrackPoint]:
     """Analyze a track and return enriched points with slopes.
 
     Args:
         points: (lat, lon) or (lat, lon, elevation) tuples.
         dem: Terrain object for elevation/slope queries.
-        resample: If True, subdivide long segments to max_spacing_m.
-        max_spacing_m: Maximum distance between points when resampling.
     """
     if not points:
         return []
 
-    if resample:
-        points = resample_track(points, max_spacing_m)
+    points = resample_track(points, RESAMPLE_THRESHOLD_M)
 
     lats = [p[0] for p in points]
     lons = [p[1] for p in points]

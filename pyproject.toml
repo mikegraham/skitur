@@ -77,10 +77,64 @@ skip_empty = true
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
+select = ["ALL"]
+ignore = [
+    "ANN",     # flake8-annotations -- TODO: add type hints incrementally
+    "D",       # pydocstyle -- docstrings on every function
+    "ERA",     # eradicate -- false positives on comment formatting
+    "T20",     # flake8-print -- print() is fine for scripts
+    "FIX",     # flags TODO/FIXME comments
+    "TD",      # strict TODO format requirements
+    "COM812",  # trailing commas -- conflicts with ruff formatter
+    "PLR2004", # magic values -- numbers like 90.0 or 2 are clear in context
+    "PLR0911", # too-many-return-statements
+    "PLR0912", # too-many-branches
+    "PLR0913", # too-many-arguments
+    "PLR0915", # too-many-statements
+    "C901",    # complex-structure -- complexity limits too aggressive
+    "INP001",  # implicit-namespace-package -- deploy/config is not a package
+    "SIM300",  # yoda conditions -- 24 <= lat <= 50 reads naturally for ranges
+    "S603",    # subprocess-without-shell-equals-true -- flags every subprocess call
+    "EM101",   # exception-must-not-use-string -- inline strings are clearer than msg variables
+    "EM102",   # exception-must-not-use-f-string-literal -- same rationale
+    "TRY003",  # raise-vanilla-args -- redundant with EM101/EM102
+    "TC",      # flake8-type-checking -- TYPE_CHECKING blocks add complexity for no runtime benefit
+]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["E501"]
+"tests/*" = [
+    "S101",     # assert
+    "ARG001",   # unused function argument (fixtures)
+    "ARG002",   # unused method argument
+    "ARG005",   # unused lambda argument
+    "EM101",    # string-in-exception (test stubs)
+    "PLC0415",  # import-outside-top-level (test fixtures)
+    "PT018",    # composite assertion
+    "PT006",    # parametrize names type
+    "PLW1510",  # subprocess-run-without-check
+    "SIM115",   # open-file-with-context-handler
+    "SIM117",   # multiple-with-statements
+    "TRY003",   # raise-vanilla-args (test stubs)
+]
+"scripts/*" = [
+    "S101", "S110", "E501", "E701",
+    "ARG001",
+    "BLE001",   # blind-except (best-effort scripts)
+    "C408",     # dict() calls -- matplotlib API convention
+    "EM102",    # f-string-in-exception
+    "PTH104",   # os-rename
+    "FBT",      # boolean args
+    "PLC0415",  # import-outside-top-level (deferred for optional deps)
+    "PERF203",  # try-except-in-loop
+    "PLW2901",  # loop var overwritten
+    "TRY003",   # raise-vanilla-args
+    "TRY300",   # try-consider-else
+    "SIM103",   # needless-bool
+    "SIM105",   # suppressible-exception
+    "SIM108",   # ternary
+    "UP035",    # deprecated-import
+    "PERF401",  # manual-list-comprehension
+]
 
 [tool.deptry]
 exclude = ["scripts", "verify_refactor\\.py", "time_refactor\\.py", "profile_old\\.py", "upstream", "\\.venv", "_refactor_baseline"]

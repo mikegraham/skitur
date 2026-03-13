@@ -16,13 +16,12 @@ import argparse
 import json
 import logging
 import math
+import os
+import shutil
 import sys
 import time
 from collections import Counter
 from pathlib import Path
-
-import os
-import shutil
 
 import requests
 
@@ -220,7 +219,7 @@ def download_tile(lat_floor: int, lon_floor: int, cache_dir: Path) -> bool:
 
     Downloads to a staging directory first, then moves files to the live
     cache dir. If the process is killed mid-download, only staging has
-    partial files — the live dir stays clean.
+    partial files -- the live dir stays clean.
     """
     from dem_stitcher import get_overlapping_dem_tiles
     from dem_stitcher.stitcher import get_dem_tile_paths
@@ -230,7 +229,7 @@ def download_tile(lat_floor: int, lon_floor: int, cache_dir: Path) -> bool:
     staging_dir = cache_dir / ".staging" / source_name
     live_dir.mkdir(parents=True, exist_ok=True)
 
-    # Exact 1x1 degree bounds — no padding, matches the source tile exactly.
+    # Exact 1x1 degree bounds -- no padding, matches the source tile exactly.
     bounds = [float(lon_floor), float(lat_floor),
               float(lon_floor + 1), float(lat_floor + 1)]
 

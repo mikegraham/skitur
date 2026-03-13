@@ -12,8 +12,7 @@ def _sustained_max(slopes: list[float], window: int = 3) -> float:
     best = 0.0
     for i in range(len(slopes) - window + 1):
         avg = sum(slopes[i:i + window]) / window
-        if avg > best:
-            best = avg
+        best = max(best, avg)
     return best
 
 

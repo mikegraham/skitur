@@ -6,6 +6,7 @@ and breakdown without leaking implementation details.
 
 import math
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 
@@ -29,7 +30,7 @@ def _build_curve(points: CurvePoints) -> PiecewiseCurve:
     if len(points) < 2:
         raise ValueError("Piecewise curve needs at least two points")
     xs, ys = zip(*points, strict=True)
-    if any(a >= b for a, b in zip(xs, xs[1:], strict=False)):
+    if any(a >= b for a, b in pairwise(xs)):
         raise ValueError("Piecewise curve x values must be strictly increasing")
     return PiecewiseCurve(
         points=points,
@@ -402,18 +403,11 @@ def score_tour(points: list[TrackPoint], dem: Terrain) -> TourScore:
     # === Downhill quality ===
     # Unclamped average - negative scores for terrible segments naturally
     # drag the average down without needing a separate penalty.
-    if downhill_scores.size:
-        downhill_quality = float(np.mean(downhill_scores))
-    else:
-        downhill_quality = 0.0
+    downhill_quality = float(np.mean(downhill_scores)) if downhill_scores.size else 0.0
 
     # === Uphill quality ===
     # Unclamped average; no uphill = neutral (not penalized)
-    if uphill_scores.size:
-        uphill_quality = float(np.mean(uphill_scores))
-    else:
-        # No uphill at all - neutral, not a flaw
-        uphill_quality = 50.0
+    uphill_quality = float(np.mean(uphill_scores)) if uphill_scores.size else 50.0
 
     # === Avy exposure (0-100, higher = safer) ===
     # What % of track is exposed to avalanche penalties?

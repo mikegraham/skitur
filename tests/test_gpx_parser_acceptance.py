@@ -10,15 +10,15 @@ from skitur.gpx import load_track
 
 
 def _load_track_gpxpy(path: Path) -> list[tuple[float, float]]:
-    with open(path) as f:
+    with path.open() as f:
         gpx = gpxpy.parse(f)
 
-    points: list[tuple[float, float]] = []
-    for track in gpx.tracks:
-        for segment in track.segments:
-            for point in segment.points:
-                points.append((float(point.latitude), float(point.longitude)))
-    return points
+    return [
+        (float(point.latitude), float(point.longitude))
+        for track in gpx.tracks
+        for segment in track.segments
+        for point in segment.points
+    ]
 
 
 def _real_fixture_corpus() -> list[Path]:
@@ -43,7 +43,7 @@ def test_lxml_loader_matches_gpxpy_on_real_fixture_corpus(gpx_path: Path) -> Non
 
     assert len(actual) == len(expected), f"point count mismatch for {gpx_path}"
 
-    for i, ((alat, alon), (elat, elon)) in enumerate(zip(actual, expected)):
+    for i, ((alat, alon), (elat, elon)) in enumerate(zip(actual, expected, strict=True)):
         assert math.isclose(
             alat, elat, abs_tol=1e-12
         ), f"lat mismatch at idx={i} for {gpx_path}: {alat} != {elat}"

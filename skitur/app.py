@@ -12,17 +12,17 @@ from pathlib import Path
 import orjson
 from cachetools import LRUCache
 from dem_stitcher.datasets import get_global_dem_tile_extents
+from dem_stitcher.exceptions import NoDEMCoverage
 from flask import Flask, Response, render_template, request
 
 from skitur.report import EmptyTrackError, build_analysis_payload
-from dem_stitcher.exceptions import NoDEMCoverage
 from skitur.terrain import ExtentTooLargeError, TerrainLoader
 
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
 
-# Defaults — override via SKITUR_CONFIG env var pointing to a Python config file.
+# Defaults -- override via SKITUR_CONFIG env var pointing to a Python config file.
 app.config["DEM_CACHE_DIR"] = Path.home() / ".cache" / "skitur" / "dem"
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024     # 10 MB
 app.config["RESPONSE_CACHE_BYTES"] = 50 * 1024 * 1024   # 50 MB per process

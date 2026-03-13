@@ -432,9 +432,12 @@ def _build_panel(spec: _Panel, out_path: Path) -> None:
 def _get_panels() -> tuple[_Panel, ...]:
     """Build panel specs. Deferred so skitur.score is only imported when needed."""
     from skitur.score import (
-        STANDING_AVY_MAX_DEG, STANDING_AVY_MIN_DEG,
-        _avy_slope_penalty, _downhill_segment_score,
-        _ground_slope_penalty, _uphill_segment_score,
+        STANDING_AVY_MAX_DEG,
+        STANDING_AVY_MIN_DEG,
+        _avy_slope_penalty,
+        _downhill_segment_score,
+        _ground_slope_penalty,
+        _uphill_segment_score,
     )
     return (
         _Panel(
@@ -474,7 +477,7 @@ def _get_panels() -> tuple[_Panel, ...]:
         ),
         _Panel(
             file_name="rating_curve_ground_steepness_multiplier.svg",
-            title='Ground steepness multiplier (AKA sidehilling is tough)',
+            title="Ground steepness multiplier (AKA sidehilling is tough)",
             x_label="Ground slope angle",
             fn=_ground_slope_penalty,
             x_min=0, x_max=55, y_min=0, y_max=1.05,

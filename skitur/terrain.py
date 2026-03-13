@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-
 from dem_stitcher import get_overlapping_dem_tiles, stitch_dem
 from dem_stitcher.exceptions import NoDEMCoverage
 
@@ -122,14 +121,14 @@ class Terrain:
 
     def get_elevation(self, lat: float, lon: float) -> float | None:
         """Get elevation at a point using bilinear interpolation."""
-        from scipy.ndimage import map_coordinates
+        from scipy.ndimage import map_coordinates  # noqa: PLC0415 - lazy-load scipy
 
         x_frac = float(_fractional_axis_coords(np.array([lon], dtype=float), self.x_coords)[0])
         y_frac = float(_fractional_axis_coords(np.array([lat], dtype=float), self.y_coords)[0])
 
         val = map_coordinates(
             self.data, [[y_frac], [x_frac]],
-            order=1, mode='nearest'
+            order=1, mode="nearest"
         )[0]
 
         if np.isnan(val):
@@ -143,14 +142,14 @@ class Terrain:
         avoiding the stair-step artifacts that nearest-neighbor creates with
         integer-meter SRTM data.
         """
-        from scipy.ndimage import map_coordinates
+        from scipy.ndimage import map_coordinates  # noqa: PLC0415 - lazy-load scipy
 
         x_frac = _fractional_axis_coords(lons, self.x_coords)
         y_frac = _fractional_axis_coords(lats, self.y_coords)
 
         return map_coordinates(
             self.data, [y_frac, x_frac],
-            order=1, mode='nearest'
+            order=1, mode="nearest"
         )
 
     def get_elevation_grid(
@@ -160,7 +159,7 @@ class Terrain:
 
         Returns (lon_mesh, lat_mesh, elev_grid).
         """
-        from scipy.ndimage import map_coordinates
+        from scipy.ndimage import map_coordinates  # noqa: PLC0415 - lazy-load scipy
 
         lons = np.linspace(lon_min, lon_max, resolution)
         lats = np.linspace(lat_min, lat_max, resolution)
@@ -169,7 +168,7 @@ class Terrain:
         x_frac = _fractional_axis_coords(lon_mesh, self.x_coords)
         y_frac = _fractional_axis_coords(lat_mesh, self.y_coords)
 
-        elev_grid = map_coordinates(self.data, [y_frac, x_frac], order=1, mode='nearest')
+        elev_grid = map_coordinates(self.data, [y_frac, x_frac], order=1, mode="nearest")
 
         return lon_mesh, lat_mesh, elev_grid
 
@@ -182,16 +181,16 @@ class Terrain:
         Returns (dz_dx, dz_dy, invalid) where invalid is True for points
         where any neighbor was NaN (border cells or missing data).
         """
-        from scipy.ndimage import map_coordinates
+        from scipy.ndimage import map_coordinates  # noqa: PLC0415 - lazy-load scipy
 
         self._ensure_gradient_grids()
         x_frac = _fractional_axis_coords(lons, self.x_coords)
         y_frac = _fractional_axis_coords(lats, self.y_coords)
 
         dz_dx = map_coordinates(self._grad_dz_dx, [y_frac, x_frac],
-                                order=1, mode='nearest')
+                                order=1, mode="nearest")
         dz_dy = map_coordinates(self._grad_dz_dy, [y_frac, x_frac],
-                                order=1, mode='nearest')
+                                order=1, mode="nearest")
         invalid = np.isnan(dz_dx) | np.isnan(dz_dy)
         return dz_dx, dz_dy, invalid
 
@@ -266,7 +265,7 @@ class Terrain:
 
         Returns (lon_mesh, lat_mesh, slope_grid_degrees).
         """
-        import cv2
+        import cv2  # noqa: PLC0415 - lazy-load opencv
 
         if len(self.x_coords) == 0:
             # Fallback: compute at display resolution from interpolated elevations
@@ -315,7 +314,7 @@ class Terrain:
 
         if smooth_sigma > 0:
             # OpenCV ksize must be odd and positive.
-            blur_ksize = max(3, int(round(smooth_sigma * 6)) | 1)
+            blur_ksize = max(3, round(smooth_sigma * 6) | 1)
             slope_filled = np.asarray(
                 cv2.GaussianBlur(
                     slope_filled,
@@ -370,6 +369,7 @@ class Terrain:
         )
 
         slope_display = np.full((resolution, resolution), np.nan, dtype=float)
+        # Avoid division by zero -- cells with negligible weight are left as NaN
         valid = remapped_w > 1e-6
         slope_display[valid] = (remapped_sum[valid] / remapped_w[valid]).astype(float)
 
@@ -463,12 +463,12 @@ def _stitch_dem_fast(stitch_fn, **kwargs):
     S3 driver, bypassing botocore entirely. This saves ~2s on every cold request.
     Safe because _dem_lock serializes all callers.
     """
-    import rasterio
+    import rasterio  # noqa: PLC0415 - lazy-load to avoid import cost at startup
     _orig_open = rasterio.open
 
     def _vsicurl_open(fp, *args, **kw):
-        if isinstance(fp, str) and '.s3.amazonaws.com/' in fp:
-            fp = f'/vsicurl/{fp}'
+        if isinstance(fp, str) and ".s3.amazonaws.com/" in fp:
+            fp = f"/vsicurl/{fp}"
         return _orig_open(fp, *args, **kw)
 
     rasterio.open = _vsicurl_open
@@ -484,7 +484,7 @@ def _source_covers_bounds(source: _DEMSource, fetch_bounds: list[float]) -> bool
     Prevents partial NaN results when a route straddles a coverage
     boundary (e.g. US/Canada border with 3DEP).
     """
-    from shapely.geometry import box as shapely_box
+    from shapely.geometry import box as shapely_box  # noqa: PLC0415 - lazy-load
 
     tiles = get_overlapping_dem_tiles(fetch_bounds, source.name)
     if tiles.empty:
@@ -495,7 +495,7 @@ def _source_covers_bounds(source: _DEMSource, fetch_bounds: list[float]) -> bool
 class TerrainLoader:
     """Loads Terrain objects from DEM tiles, with on-disk caching.
 
-    Resolution cascade: 3DEP (10m) → GLO-30 (30m) → GLO-90 (90m).
+    Resolution cascade: 3DEP (10m) -> GLO-30 (30m) -> GLO-90 (90m).
     """
 
     def __init__(self, cache_dir: Path):
@@ -512,14 +512,15 @@ class TerrainLoader:
         Tries sources best-first, skipping those without full coverage.
         Thread-safe: module-level lock serializes stitch_dem calls.
         """
-        MAX_EXTENT_DEG = 1.0
+        max_extent_deg = 1.0
         lat_span = lat_max - lat_min
         lon_span = lon_max - lon_min
-        if lat_span > MAX_EXTENT_DEG or lon_span > MAX_EXTENT_DEG:
-            raise ExtentTooLargeError(
+        if lat_span > max_extent_deg or lon_span > max_extent_deg:
+            msg = (
                 f"Route covers too large an area ({lat_span:.2f} x {lon_span:.2f} deg, "
-                f"max {MAX_EXTENT_DEG} x {MAX_EXTENT_DEG} deg)"
+                f"max {max_extent_deg} x {max_extent_deg} deg)"
             )
+            raise ExtentTooLargeError(msg)
 
         lat_min -= padding
         lat_max += padding
@@ -534,8 +535,9 @@ class TerrainLoader:
                     return self._fetch(source, lat_min, lat_max, lon_min, lon_max)
                 logger.info("DEM source %s doesn't fully cover bounds; trying next", source.name)
 
-            raise NoDEMCoverage(f"No DEM source covers bounds [{lat_min:.4f}, {lat_max:.4f}, "
-                                f"{lon_min:.4f}, {lon_max:.4f}]")
+            msg = (f"No DEM source covers bounds [{lat_min:.4f}, {lat_max:.4f}, "
+                   f"{lon_min:.4f}, {lon_max:.4f}]")
+            raise NoDEMCoverage(msg)
 
     def _fetch(
         self,
@@ -554,7 +556,8 @@ class TerrainLoader:
 
         tile_cache = self.cache_dir / source.name
         tile_cache.mkdir(parents=True, exist_ok=True)
-        stitch_kwargs = dict(
+        data, profile = _stitch_dem_fast(
+            stitch_dem,
             bounds=fetch_bounds,
             dem_name=source.name,
             dst_ellipsoidal_height=False,
@@ -562,7 +565,6 @@ class TerrainLoader:
             dst_resolution=source.resolution,
             dst_tile_dir=tile_cache,
         )
-        data, profile = _stitch_dem_fast(stitch_dem, **stitch_kwargs)
 
         if data.ndim == 3:
             data = data[0]
@@ -577,8 +579,7 @@ class TerrainLoader:
             data = data[::-1, :]
 
         if not np.issubdtype(data.dtype, np.floating):
-            raise TypeError(
-                f"DEM data has non-float dtype {data.dtype}; expected float32 or float64"
-            )
+            msg = f"DEM data has non-float dtype {data.dtype}; expected float32 or float64"
+            raise TypeError(msg)
 
         return Terrain(x_coords=x_coords, y_coords=y_coords, data=data)

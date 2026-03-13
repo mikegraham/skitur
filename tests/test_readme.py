@@ -5,7 +5,6 @@ import pytest
 
 from skitur import score
 
-
 README_PATH = Path(__file__).resolve().parents[1] / "README.md"
 
 

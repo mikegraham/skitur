@@ -7,10 +7,10 @@ from dem_stitcher.exceptions import NoDEMCoverage
 from shapely.geometry import box as shapely_box
 
 from skitur.terrain import (
+    _DEM_SOURCES,
     ExtentTooLargeError,
     Terrain,
     TerrainLoader,
-    _DEM_SOURCES,
     _source_covers_bounds,
 )
 
@@ -32,7 +32,9 @@ def dem(terrain_loader):
 def test_elevation_known_points(dem, lat, lon, expected_min, expected_max):
     elev = dem.get_elevation(lat, lon)
     assert elev is not None
-    assert expected_min < elev < expected_max, f"Expected {expected_min}-{expected_max}m, got {elev}m"
+    assert expected_min < elev < expected_max, (
+        f"Expected {expected_min}-{expected_max}m, got {elev}m"
+    )
 
 
 def test_ground_slope_steep_terrain(dem):
@@ -165,8 +167,8 @@ def test_dem_source_order_is_best_first():
 def test_partial_coverage_rejected():
     """A source whose tiles only partially cover the bounds should be skipped.
 
-    Simulates the US/Canada border: 3DEP covers up to 49°N but the route
-    extends to 49.08°N. The tiles don't fully contain the request, so
+    Simulates the US/Canada border: 3DEP covers up to 49degN but the route
+    extends to 49.08degN. The tiles don't fully contain the request, so
     _source_covers_bounds returns False and the caller falls through to GLO-30.
     """
     lat_min, lat_max = 48.90, 49.10

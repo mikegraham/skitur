@@ -25,11 +25,12 @@ def test_load_track():
     assert pytest.approx(lon0, abs=0.001) == -121.698
 
 
-def test_analyze_track_without_resampling(dem):
+def test_analyze_track(dem):
     points = load_track(TEST_GPX)
-    analysis = analyze_track(points, dem, resample=False)
+    analysis = analyze_track(points, dem)
 
-    assert len(analysis) == len(points)
+    # Resampling adds points to the 9-point raw track
+    assert len(analysis) > len(points)
     assert analysis[0].track_slope is None  # first point has no predecessor
     assert analysis[0].distance == 0.0
     assert analysis[-1].distance > 4000  # ~4.5km route
@@ -45,20 +46,10 @@ def test_analyze_track_without_resampling(dem):
     assert analysis[0].elevation > analysis[-1].elevation
 
 
-def test_resampling_adds_points(dem):
-    points = load_track(TEST_GPX)
-    raw = analyze_track(points, dem, resample=False)
-    resampled = analyze_track(points, dem, resample=True)
-
-    assert len(resampled) > len(raw)
-    # Total distance should be similar regardless of resampling
-    assert pytest.approx(resampled[-1].distance, rel=0.05) == raw[-1].distance
-
-
 def test_distance_monotonically_increases(dem):
     """Cumulative distance should never decrease."""
     points = load_track(TEST_GPX)
-    analysis = analyze_track(points, dem, resample=False)
+    analysis = analyze_track(points, dem)
     for i in range(1, len(analysis)):
         assert analysis[i].distance >= analysis[i - 1].distance
 
@@ -70,7 +61,7 @@ def test_analyze_empty_track(dem):
 def test_analyze_all_points_have_ground_slope(dem):
     """Every analyzed point should have a ground slope (terrain data exists)."""
     points = load_track(TEST_GPX)
-    analysis = analyze_track(points, dem, resample=False)
+    analysis = analyze_track(points, dem)
     for pt in analysis:
         assert pt.ground_slope is not None
 
@@ -106,7 +97,7 @@ def test_analyze_track_with_dem_void():
         (45.373, -121.70),
         (45.374, -121.70),
     ]
-    analysis = analyze_track(points, _VoidTerrain(), resample=False)  # type: ignore[arg-type]
+    analysis = analyze_track(points, _VoidTerrain())  # type: ignore[arg-type]
     mid = len(analysis) // 2
 
     # The void point should have elevation=None

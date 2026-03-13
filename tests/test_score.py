@@ -10,18 +10,18 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from skitur.analyze import TrackPoint
 from skitur.score import (
-    _build_curve,
-    _downhill_segment_score,
-    _uphill_segment_score,
-    _ground_slope_penalty,
     _avy_slope_danger,
     _avy_slope_dangers,
+    _build_curve,
     _compute_runout_exposure,
     _compute_runout_exposures,
+    _downhill_segment_score,
+    _ground_slope_penalty,
+    _uphill_segment_score,
     score_tour,
 )
-from skitur.analyze import TrackPoint
 from skitur.terrain import TerrainLoader
 
 pytestmark = pytest.mark.enable_socket
@@ -95,7 +95,7 @@ def test_downhill_steep_goes_negative():
 
 
 def test_downhill_monotonic_increase_to_peak():
-    scores = [_downhill_segment_score(s) for s in range(0, 7)]
+    scores = [_downhill_segment_score(s) for s in range(7)]
     for i in range(1, len(scores)):
         assert scores[i] >= scores[i - 1]
 
@@ -419,7 +419,9 @@ def test_ground_penalty_reduces_quality(dem):
         _make_point(distance=500, track_slope=-7, ground_slope=35),
         _make_point(distance=1000, track_slope=-7, ground_slope=35),
     ]
-    assert score_tour(flat_ground, dem).downhill_quality > score_tour(steep_ground, dem).downhill_quality
+    flat_score = score_tour(flat_ground, dem).downhill_quality
+    steep_score = score_tour(steep_ground, dem).downhill_quality
+    assert flat_score > steep_score
 
 
 # -- Realistic touring scenarios --
@@ -609,13 +611,17 @@ def test_pure_traverse_no_up_no_down(dem):
 
     All points have tiny +/- slopes; these are still classified by sign.
     """
-    points = [_make_point(distance=0, track_slope=None, ground_slope=15)]
-    for i in range(10):
-        points.append(_make_point(
-            distance=(i + 1) * 100,
-            track_slope=0.3 * (1 if i % 2 else -1),
-            ground_slope=15,
-        ))
+    points = [
+        _make_point(distance=0, track_slope=None, ground_slope=15),
+        *[
+            _make_point(
+                distance=(i + 1) * 100,
+                track_slope=0.3 * (1 if i % 2 else -1),
+                ground_slope=15,
+            )
+            for i in range(10)
+        ],
+    ]
     score = score_tour(points, dem)
 
     assert score.downhill_quality > 70

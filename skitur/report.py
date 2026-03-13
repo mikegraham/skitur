@@ -13,7 +13,11 @@ import orjson
 from skitur.analyze import TrackPoint, analyze_track
 from skitur.geo import METERS_PER_DEG_LAT
 from skitur.gpx import load_track
-from skitur.mapdata import choose_contour_steps_ft
+from skitur.mapdata import (
+    _sample_elevation_grid,
+    _sample_slope_grid,
+    choose_contour_steps_ft,
+)
 from skitur.score import TourScore, score_tour
 from skitur.stats import compute_stats
 from skitur.terrain import TerrainLoader
@@ -80,8 +84,7 @@ def _strip_upload_ui_for_static_report(template_html: str) -> str:
         if results_start != -1:
             html = html[:upload_start] + html[results_start:]
 
-    html = html.replace('<button id="new-upload-btn" type="button">Analyze Another</button>', "")
-    return html
+    return html.replace('<button id="new-upload-btn" type="button">Analyze Another</button>', "")
 
 
 def _compute_contours(grids: dict) -> dict:
@@ -135,19 +138,18 @@ def _build_response(
     grids: dict,
 ) -> dict:
     """Build API/report JSON payload from analysis outputs."""
-    track_data = []
-    for p in points:
-        track_data.append(
-            {
-                "lat": p.lat,
-                "lon": p.lon,
-                "elevation": p.elevation,
-                "distance": p.distance,
-                "track_slope": p.track_slope,
-                "ground_slope": p.ground_slope,
-                "ground_aspect": p.ground_aspect,
-            }
-        )
+    track_data = [
+        {
+            "lat": p.lat,
+            "lon": p.lon,
+            "elevation": p.elevation,
+            "distance": p.distance,
+            "track_slope": p.track_slope,
+            "ground_slope": p.ground_slope,
+            "ground_aspect": p.ground_aspect,
+        }
+        for p in points
+    ]
 
     slope_grid = grids["slope_grid"]
     rows, cols = slope_grid.shape
@@ -189,8 +191,6 @@ def _compute_analysis(
     Overlaps independent work: slope grid (expensive, ~1.5s) runs concurrently
     with analyze_track + contour extraction.
     """
-    from skitur.mapdata import _sample_elevation_grid, _sample_slope_grid
-
     raw_points = load_track(gpx_path)
     if len(raw_points) < 2:
         raise EmptyTrackError("GPX file contains no usable track points")

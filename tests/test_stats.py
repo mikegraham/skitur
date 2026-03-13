@@ -21,16 +21,16 @@ def dem(terrain_loader):
 def test_compute_stats(dem):
     """Stats should reflect known properties of the Hood descent route."""
     points = load_track(TEST_GPX)
-    analysis = analyze_track(points, dem, resample=False)
+    analysis = analyze_track(points, dem)
     stats = compute_stats(analysis)
 
     # Hood descent is ~5km with ~1500m of elevation loss
-    assert 4000 < stats['total_distance_m'] < 8000
-    assert stats['elevation_loss_m'] > 1000
-    assert stats['elevation_gain_m'] < stats['elevation_loss_m']
-    assert stats['max_elevation_m'] > 2500
-    assert stats['min_elevation_m'] < 2000
-    assert stats['downhill_max'] > stats['downhill_avg'] > 10  # steep descent
+    assert 4000 < stats["total_distance_m"] < 8000
+    assert stats["elevation_loss_m"] > 1000
+    assert stats["elevation_gain_m"] < stats["elevation_loss_m"]
+    assert stats["max_elevation_m"] > 2500
+    assert stats["min_elevation_m"] < 2000
+    assert stats["downhill_max"] > stats["downhill_avg"] > 10  # steep descent
 
 
 def test_compute_stats_uphill_only():
@@ -41,10 +41,10 @@ def test_compute_stats_uphill_only():
         TrackPoint(45.02, -121.0, 2000, 1000, 5.0, 10),
     ]
     stats = compute_stats(points)
-    assert stats['uphill_avg'] > 0
-    assert stats['downhill_avg'] == 0
-    assert stats['elevation_gain_m'] > 0
-    assert stats['elevation_loss_m'] == 0
+    assert stats["uphill_avg"] > 0
+    assert stats["downhill_avg"] == 0
+    assert stats["elevation_gain_m"] > 0
+    assert stats["elevation_loss_m"] == 0
 
 
 def test_main_subprocess_generates_report(tmp_path):

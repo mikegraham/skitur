@@ -33,14 +33,15 @@ def _wait_for_report_render(page, timeout_ms: int = 30_000) -> None:
             const results = document.getElementById('results-section');
             if (!results || window.getComputedStyle(results).display === 'none') return false;
 
-            const hasSlopeImage = Array.from(document.querySelectorAll('#map img'))
+            const qs = (s) => document.querySelector(s) !== null;
+            const slope = Array.from(document.querySelectorAll('#map img'))
               .some((img) => img.src && img.src.startsWith('data:image/png'));
-            const hasTrackCanvas = document.querySelector('#map canvas') !== null;
-            const hasElevationPlot = document.querySelector('#elevation-chart .plot-container') !== null;
-            const hasHistogramPlot = document.querySelector('#histogram-chart .plot-container') !== null;
-            const hasScoreTotal = document.querySelector('.score-total') !== null;
+            const track = qs('#map canvas');
+            const elev = qs('#elevation-chart .plot-container');
+            const hist = qs('#histogram-chart .plot-container');
+            const score = qs('.score-total');
 
-            return hasSlopeImage && hasTrackCanvas && hasElevationPlot && hasHistogramPlot && hasScoreTotal;
+            return slope && track && elev && hist && score;
         }""",
         timeout=timeout_ms,
     )
@@ -73,7 +74,7 @@ def rendered_page():
     assert resp.status_code == 200
     template_html = resp.data.decode()
 
-    with open(GPX_FILE, "rb") as f:
+    with GPX_FILE.open("rb") as f:
         resp = client.post(
             "/api/analyze",
             data={"gpx_file": (f, "Twin_Lakes.gpx")},
@@ -181,7 +182,7 @@ def test_chart_containers_have_children(rendered_page):
             f"document.getElementById('{chart_id}').children.length"
         )
         assert child_count > 0, (
-            f"Chart #{chart_id} has no children — Plotly did not render"
+            f"Chart #{chart_id} has no children -- Plotly did not render"
         )
 
 
@@ -278,7 +279,7 @@ def test_elevation_chart_colored_with_dense_track(rendered_page):
     # The colored pixels should outnumber gray pixels along the line.
     # Before the fix, the line was almost entirely gray (#ccc).
     assert colored > gray, (
-        f"Elevation chart line is mostly gray ({gray} gray vs {colored} colored px) — "
+        f"Elevation chart line is mostly gray ({gray} gray vs {colored} colored px) -- "
         "dense track slope colors are not rendering visibly"
     )
 

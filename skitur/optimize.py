@@ -9,9 +9,9 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
-from skitur.geo import equirectangular_distance, METERS_PER_DEG_LAT
-from skitur.terrain import Terrain, TerrainLoader
+from skitur.geo import METERS_PER_DEG_LAT, equirectangular_distance
 from skitur.score import _avy_slope_penalty, _downhill_segment_score, _uphill_segment_score
+from skitur.terrain import Terrain, TerrainLoader
 
 # Optimization parameters
 POINT_SPACING_M = 100.0      # Target spacing between route points

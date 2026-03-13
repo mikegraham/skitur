@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from skitur.app import app
 from skitur.mapdata import compute_map_grids
 from skitur.report import (
     _build_response,
@@ -14,7 +15,6 @@ from skitur.report import (
     build_embedded_report_html,
 )
 from skitur.stats import compute_stats
-from skitur.app import app
 
 TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
 pytestmark = pytest.mark.enable_socket
@@ -30,8 +30,8 @@ def client():
 @pytest.fixture(scope="module")
 def analysis_data(terrain_loader):
     """Run full analysis once and return the JSON response dict."""
-    from skitur.gpx import load_track
     from skitur.analyze import analyze_track
+    from skitur.gpx import load_track
     from skitur.score import score_tour
 
     raw = load_track(TEST_GPX)
@@ -45,7 +45,7 @@ def analysis_data(terrain_loader):
     return _build_response(points, stats, score, grids)
 
 
-# ── Route tests ──────────────────────────────────────────────────────
+# -- Route tests ------------------------------------------------------
 
 def test_index_page(client):
     resp = client.get("/")
@@ -107,11 +107,11 @@ def test_analyze_rejects_xml_bomb_markers(client, payload):
     assert data["error"] == "Invalid GPX file"
 
 
-# ── Cache hit ────────────────────────────────────────────────────────
+# -- Cache hit --------------------------------------------------------
 
 def test_analyze_cache_hit(client):
     """Second upload of the same GPX file should return a cached response."""
-    with open(TEST_GPX, "rb") as f:
+    with TEST_GPX.open("rb") as f:
         gpx_bytes = f.read()
 
     resp1 = client.post(
@@ -132,7 +132,7 @@ def test_analyze_cache_hit(client):
     assert resp2.data == body1
 
 
-# ── Error branches ───────────────────────────────────────────────────
+# -- Error branches ---------------------------------------------------
 
 def test_analyze_extent_too_large(client, monkeypatch):
     """GPX spanning >1 degree should return 422."""
@@ -173,7 +173,7 @@ def test_analyze_unexpected_error(client, monkeypatch):
     assert "something broke" not in data["error"]
 
 
-# ── Broken GPX handling ─────────────────────────────────────────────
+# -- Broken GPX handling ---------------------------------------------
 
 def _gpx_bytes(trkpts_xml: str) -> bytes:
     """Wrap trkpt XML in a minimal valid GPX envelope."""
@@ -273,7 +273,7 @@ def test_analyze_duplicate_points_gpx(client):
         data={"gpx_file": (BytesIO(gpx), "dupes.gpx")},
         content_type="multipart/form-data",
     )
-    # Degenerate but parseable — succeeds with zero-distance track
+    # Degenerate but parseable -- succeeds with zero-distance track
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert len(data["track"]) == 10
@@ -281,7 +281,7 @@ def test_analyze_duplicate_points_gpx(client):
 
 
 def test_analyze_success(client):
-    with open(TEST_GPX, "rb") as f:
+    with TEST_GPX.open("rb") as f:
         resp = client.post(
             "/api/analyze",
             data={"gpx_file": (f, "test.gpx")},
@@ -303,7 +303,7 @@ def test_analyze_success(client):
     assert 0 <= data["score"]["total"] <= 100
 
 
-# ── Hood descent: validate actual analysis results ────────────────────
+# -- Hood descent: validate actual analysis results --------------------
 
 def test_hood_descent_track_is_on_hood(analysis_data):
     """Track points should be on Mt Hood (lat ~45.37, lon ~-121.7)."""
@@ -337,12 +337,12 @@ def test_hood_descent_is_steep(analysis_data):
 
 
 def test_hood_descent_downhill_score_is_bad(analysis_data):
-    """Hood descent is scary steep — downhill fun should be very low."""
+    """Hood descent is scary steep -- downhill fun should be very low."""
     score = analysis_data["score"]
     # The updated downhill curve has a higher floor for mellow sections.
     # Hood still should not look "good" as XC downhill quality.
     assert score["downhill_quality"] < 50, \
-        f"Hood descent downhill quality {score['downhill_quality']} is too high — it's scary AF"
+        f"Hood descent downhill quality {score['downhill_quality']} is too high -- it's scary AF"
 
 
 def test_hood_descent_total_score_is_low(analysis_data):
@@ -362,7 +362,7 @@ def test_hood_descent_has_avy_terrain(analysis_data):
         "Hood should have some avy terrain"
 
 
-# ── Contour computation tests ─────────────────────────────────────────
+# -- Contour computation tests -----------------------------------------
 
 def test_contour_structure(analysis_data):
     """Contours have expected structure with minor and major lines."""
@@ -392,7 +392,9 @@ def test_contour_major_have_levels(analysis_data):
     assert "coords" in item
     assert minor_step in (10, 20, 40, 80)
     assert major_step == minor_step * 5
-    assert item["level"] % major_step == 0, f"Major level {item['level']} not divisible by {major_step}"
+    assert item["level"] % major_step == 0, (
+        f"Major level {item['level']} not divisible by {major_step}"
+    )
 
 
 def test_contour_levels_are_reasonable(analysis_data):
@@ -414,7 +416,7 @@ def test_contour_coords_are_near_track(analysis_data):
             assert sg["lon_min"] - 0.01 < lon < sg["lon_max"] + 0.01
 
 
-# ── Slope grid tests ──────────────────────────────────────────────────
+# -- Slope grid tests --------------------------------------------------
 
 def test_slope_grid_structure(analysis_data):
     """Slope grid has expected fields and dimensions."""
@@ -453,10 +455,10 @@ def test_slope_grid_has_valid_data(analysis_data):
     data = analysis_data["slope_grid"]["data"]
     valid = [v for v in data if v != -1]
     pct_valid = len(valid) / len(data) * 100
-    assert pct_valid > 50, f"Only {pct_valid:.0f}% valid — grid is mostly NaN"
+    assert pct_valid > 50, f"Only {pct_valid:.0f}% valid -- grid is mostly NaN"
 
 
-# ── Grid aspect ratio test ────────────────────────────────────────────
+# -- Grid aspect ratio test --------------------------------------------
 
 def test_grid_aspect_ratio_reasonable(analysis_data):
     """Grid should have aspect ratio <= 3:1."""
@@ -471,7 +473,7 @@ def test_grid_aspect_ratio_reasonable(analysis_data):
     assert ratio <= 3.0, f"Grid aspect ratio {ratio:.1f}:1 too extreme"
 
 
-# ── Template tests ────────────────────────────────────────────────────
+# -- Template tests ----------------------------------------------------
 
 def test_strip_upload_ui_for_static_report_removes_upload_markup():
     template = (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").read_text()
@@ -511,7 +513,7 @@ def test_template_mentions_avalanche_exposure(client):
     assert "Avy safety" not in html
 
 
-# ── Twin Lakes: golden tests for a mellow XC loop ────────────────────
+# -- Twin Lakes: golden tests for a mellow XC loop --------------------
 
 TWIN_LAKES_GPX = Path(__file__).parent / "data" / "Twin_Lakes.gpx"
 
@@ -519,8 +521,8 @@ TWIN_LAKES_GPX = Path(__file__).parent / "data" / "Twin_Lakes.gpx"
 @pytest.fixture(scope="module")
 def twin_lakes_data(terrain_loader):
     """Run full analysis on Twin Lakes and return the JSON response dict."""
-    from skitur.gpx import load_track
     from skitur.analyze import analyze_track
+    from skitur.gpx import load_track
     from skitur.score import score_tour
 
     raw = load_track(TWIN_LAKES_GPX)
@@ -550,7 +552,7 @@ def test_twin_lakes_distance(twin_lakes_data):
 
 
 def test_twin_lakes_elevation(twin_lakes_data):
-    """Moderate elevation — peaks around 1400m, low around 1260m."""
+    """Moderate elevation -- peaks around 1400m, low around 1260m."""
     stats = twin_lakes_data["stats"]
     assert 1350 < stats["max_elevation_m"] < 1450
     assert 1200 < stats["min_elevation_m"] < 1300
@@ -609,10 +611,10 @@ def test_twin_lakes_slope_grid_mostly_gentle(twin_lakes_data):
     valid = [v for v in data if v != -1]
     gentle = [v for v in valid if v < 25]
     pct_gentle = len(gentle) / len(valid) * 100
-    assert pct_gentle > 50, f"Only {pct_gentle:.0f}% gentle — expected mostly moderate terrain"
+    assert pct_gentle > 50, f"Only {pct_gentle:.0f}% gentle -- expected mostly moderate terrain"
 
 
-# ── Rendering tests (Playwright) ──────────────────────────────────────
+# -- Rendering tests (Playwright) --------------------------------------
 
 def _wait_for_report_render(page, timeout_ms: int = 30_000) -> None:
     page.wait_for_function(
@@ -620,14 +622,15 @@ def _wait_for_report_render(page, timeout_ms: int = 30_000) -> None:
             const results = document.getElementById('results-section');
             if (!results || window.getComputedStyle(results).display === 'none') return false;
 
-            const hasSlopeImage = Array.from(document.querySelectorAll('#map img'))
+            const qs = (s) => document.querySelector(s) !== null;
+            const slope = Array.from(document.querySelectorAll('#map img'))
               .some((img) => img.src && img.src.startsWith('data:image/png'));
-            const hasTrackCanvas = document.querySelector('#map canvas') !== null;
-            const hasElevationPlot = document.querySelector('#elevation-chart .plot-container') !== null;
-            const hasHistogramPlot = document.querySelector('#histogram-chart .plot-container') !== null;
-            const hasScoreTotal = document.querySelector('#score-panel .score-total') !== null;
+            const track = qs('#map canvas');
+            const elev = qs('#elevation-chart .plot-container');
+            const hist = qs('#histogram-chart .plot-container');
+            const score = qs('#score-panel .score-total');
 
-            return hasSlopeImage && hasTrackCanvas && hasElevationPlot && hasHistogramPlot && hasScoreTotal;
+            return slope && track && elev && hist && score;
         }""",
         timeout=timeout_ms,
     )
@@ -660,7 +663,7 @@ def rendered_page(analysis_data):
     from functools import partial
     from http.server import HTTPServer, SimpleHTTPRequestHandler
 
-    with open(Path(__file__).parent.parent / "skitur" / "templates" / "index.html") as f:
+    with (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").open() as f:
         template_html = f.read()
 
     html = build_embedded_report_html(
