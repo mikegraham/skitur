@@ -11,7 +11,7 @@ PORT=5199
 cd "$REPO_DIR"
 
 # Start Flask server in background
-.venv/bin/python3 -m skitur.app --port "$PORT" &
+.venv/bin/flask --app skitur.app run --port "$PORT" 2>/dev/null &
 SERVER_PID=$!
 trap "kill $SERVER_PID 2>/dev/null" EXIT
 
