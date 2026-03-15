@@ -11,7 +11,6 @@ from skitur.app import app
 from skitur.mapdata import compute_map_grids
 from skitur.report import (
     _build_response,
-    _strip_upload_ui_for_static_report,
     build_embedded_report_html,
 )
 from skitur.stats import compute_stats
@@ -47,14 +46,20 @@ def analysis_data(terrain_loader):
 
 # -- Route tests ------------------------------------------------------
 
-def test_index_page(client):
+def test_landing_page(client):
     resp = client.get("/")
     assert resp.status_code == 200
     html = resp.data.decode()
     assert "Skitur" in html
-    assert "upload" in html.lower()
-    assert "Leaflet" in html
-    assert "Plotly" in html or "plotly" in html
+    assert "gpx" in html.lower()
+    assert "upload-section" in html
+
+
+def test_landing_page_cache_headers(client):
+    resp = client.get("/")
+    assert resp.cache_control.public
+    assert resp.cache_control.max_age == 300
+    assert "CDN-Cache-Control" in resp.headers
 
 
 def test_analyze_no_file(client):
@@ -280,6 +285,30 @@ def test_analyze_duplicate_points_gpx(client):
     assert data["stats"]["total_distance_m"] == 0
 
 
+def test_analyze_web_returns_html(client):
+    """POST /analyze should return a full HTML report page."""
+    with TEST_GPX.open("rb") as f:
+        resp = client.post(
+            "/analyze",
+            data={"gpx_file": (f, "test.gpx")},
+            content_type="multipart/form-data",
+        )
+    assert resp.status_code == 200
+    assert "text/html" in resp.content_type
+    html = resp.data.decode()
+    assert "renderResults" in html
+    assert 'id="results-section"' in html
+    assert 'id="upload-section"' not in html
+
+
+def test_analyze_web_error_returns_json(client):
+    """POST /analyze with no file should return JSON error."""
+    resp = client.post("/analyze")
+    assert resp.status_code == 400
+    data = json.loads(resp.data)
+    assert "error" in data
+
+
 def test_analyze_success(client):
     with TEST_GPX.open("rb") as f:
         resp = client.post(
@@ -475,40 +504,38 @@ def test_grid_aspect_ratio_reasonable(analysis_data):
 
 # -- Template tests ----------------------------------------------------
 
-def test_strip_upload_ui_for_static_report_removes_upload_markup():
+def test_report_template_has_no_upload_section():
+    """The report template should not contain the upload section."""
     template = (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").read_text()
-    stripped = _strip_upload_ui_for_static_report(template)
-
-    assert 'id="upload-section"' not in stripped
-    assert "Analyze Another" not in stripped
-    assert 'id="results-section"' in stripped
+    assert 'id="upload-section"' not in template
+    assert 'id="results-section"' in template
 
 
-def test_template_has_no_opentopo_tiles(client):
+def _read_report_template():
+    return (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").read_text()
+
+
+def test_template_has_no_opentopo_tiles():
     """We should not reference OpenTopoMap tiles anymore."""
-    resp = client.get("/")
-    html = resp.data.decode()
+    html = _read_report_template()
     assert "opentopomap" not in html.lower(), "Should not reference OpenTopoMap tiles"
 
 
-def test_template_has_attribution_control_disabled(client):
+def test_template_has_attribution_control_disabled():
     """Leaflet map should be created with attributionControl: false."""
-    resp = client.get("/")
-    html = resp.data.decode()
+    html = _read_report_template()
     assert "attributionControl: false" in html
 
 
-def test_template_has_avtraining_link(client):
+def test_template_has_avtraining_link():
     """Should link to avtraining.org for avalanche education."""
-    resp = client.get("/")
-    html = resp.data.decode()
+    html = _read_report_template()
     assert "avtraining.org" in html
 
 
-def test_template_mentions_avalanche_exposure(client):
+def test_template_mentions_avalanche_exposure():
     """Score panel should say 'Avalanche exposure', not 'Avy safety'."""
-    resp = client.get("/")
-    html = resp.data.decode()
+    html = _read_report_template()
     assert "Avalanche exposure" in html or "avalanche exposure" in html.lower()
     assert "Avy safety" not in html
 
@@ -666,13 +693,7 @@ def rendered_page(analysis_data):
     with (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").open() as f:
         template_html = f.read()
 
-    html = build_embedded_report_html(
-        template_html=template_html,
-        data=analysis_data,
-        filename="test.gpx",
-        hide_upload_section=True,
-        hide_new_upload_button=False,
-    )
+    html = build_embedded_report_html(template_html, analysis_data, "test.gpx")
     # Strip SRI integrity attributes so locally-served CDN scripts
     # aren't blocked by hash mismatches.
     import re

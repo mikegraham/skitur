@@ -15,7 +15,7 @@ from dem_stitcher.datasets import get_global_dem_tile_extents
 from dem_stitcher.exceptions import NoDEMCoverage
 from flask import Flask, Response, render_template, request
 
-from skitur.report import EmptyTrackError, build_analysis_payload
+from skitur.report import EmptyTrackError, build_analysis_payload, build_embedded_report_html
 from skitur.terrain import ExtentTooLargeError, TerrainLoader
 
 logger = logging.getLogger(__name__)
@@ -55,9 +55,10 @@ _terrain_loader = TerrainLoader(cache_dir=app.config["DEM_CACHE_DIR"])
 
 @app.route("/")
 def index():
-    resp = Response(render_template("index.html"), content_type="text/html")
+    resp = Response(render_template("landing.html"), content_type="text/html")
     resp.cache_control.public = True
-    resp.cache_control.max_age = 300  # 5 min browser cache
+    resp.cache_control.max_age = 300           # browser: 5 min
+    resp.headers["CDN-Cache-Control"] = "max-age=604800"  # CDN: 1 week (purged on deploy)
     return resp
 
 
@@ -74,27 +75,19 @@ def _json_error(msg: str, status: int = 400) -> tuple[Response, int]:
     return Response(body, status=status, content_type="application/json"), status
 
 
-@app.route("/api/analyze", methods=["POST"])
-def analyze():
-    if "gpx_file" not in request.files:
-        return _json_error("No GPX file uploaded")
-
-    gpx_file = request.files["gpx_file"]
-    if gpx_file.filename == "":
-        return _json_error("No file selected")
-
-    gpx_bytes = gpx_file.read()
-
+def _get_analysis_json(gpx_bytes: bytes) -> bytes:
+    """Analyze GPX bytes and return JSON response bytes. Caches results."""
     with _cache_lock:
         cached = _cache.get(gpx_bytes)
     if cached is not None:
         logger.info("Cache hit (%d bytes)", len(cached))
-        return Response(cached, content_type="application/json")
+        return cached
 
     # Reject XML bombs: valid GPX files never contain DOCTYPE or ENTITY declarations.
     raw_text = gpx_bytes.decode("utf-8", errors="replace")
     if "<!DOCTYPE" in raw_text or "<!ENTITY" in raw_text:
-        return _json_error("Invalid GPX file")
+        msg = "Invalid GPX file"
+        raise ValueError(msg)
 
     with tempfile.NamedTemporaryFile(suffix=".gpx", delete=False) as tmp:
         tmp.write(gpx_bytes)
@@ -105,7 +98,21 @@ def analyze():
         body = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY)
         with _cache_lock:
             _cache[gpx_bytes] = body
-        return Response(body, content_type="application/json")
+        return body
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _handle_analysis_errors(fn):
+    """Run fn() and translate analysis exceptions to JSON error responses."""
+    if "gpx_file" not in request.files:
+        return _json_error("No GPX file uploaded")
+    if request.files["gpx_file"].filename == "":
+        return _json_error("No file selected")
+    try:
+        return fn()
+    except ValueError as exc:
+        return _json_error(str(exc))
     except EmptyTrackError:
         return _json_error("GPX file contains no usable track points")
     except ExtentTooLargeError as exc:
@@ -117,5 +124,24 @@ def analyze():
     except Exception:
         logger.exception("Analysis failed")
         return _json_error("Analysis failed. Please try again.", 500)
-    finally:
-        tmp_path.unlink(missing_ok=True)
+
+
+@app.route("/api/analyze", methods=["POST"])
+def api_analyze():
+    def _do():
+        body = _get_analysis_json(request.files["gpx_file"].read())
+        return Response(body, content_type="application/json")
+    return _handle_analysis_errors(_do)
+
+
+@app.route("/analyze", methods=["POST"])
+def analyze_web():
+    """Analyze GPX and return a full HTML report page."""
+    def _do():
+        gpx_file = request.files["gpx_file"]
+        body = _get_analysis_json(gpx_file.read())
+        data = orjson.loads(body)
+        template_html = render_template("index.html")
+        html = build_embedded_report_html(template_html, data, gpx_file.filename or "track")
+        return Response(html, content_type="text/html")
+    return _handle_analysis_errors(_do)

@@ -70,10 +70,6 @@ def rendered_page():
     """
     client = app.test_client()
 
-    resp = client.get("/")
-    assert resp.status_code == 200
-    template_html = resp.data.decode()
-
     with GPX_FILE.open("rb") as f:
         resp = client.post(
             "/api/analyze",
@@ -84,13 +80,10 @@ def rendered_page():
     data = resp.get_json()
     assert data is not None
 
-    html = build_embedded_report_html(
-        template_html=template_html,
-        data=data,
-        filename="Twin_Lakes.gpx",
-        hide_upload_section=True,
-        hide_new_upload_button=False,
-    )
+    template_path = Path(__file__).parent.parent / "skitur" / "templates" / "index.html"
+    template_html = template_path.read_text()
+
+    html = build_embedded_report_html(template_html, data, "Twin_Lakes.gpx")
     # Strip SRI integrity attributes so locally-served CDN scripts
     # aren't blocked by hash mismatches.
     import re
@@ -145,13 +138,11 @@ def test_results_section_visible(rendered_page):
     assert display != "none", f"Results section display is '{display}', expected not 'none'"
 
 
-def test_upload_section_hidden(rendered_page):
-    """The upload section should be hidden after results render."""
+def test_no_upload_section(rendered_page):
+    """The report template should not contain an upload section."""
     page = rendered_page
-    display = page.evaluate(
-        "window.getComputedStyle(document.getElementById('upload-section')).display"
-    )
-    assert display == "none", f"Upload section display is '{display}', expected 'none'"
+    upload = page.query_selector("#upload-section")
+    assert upload is None, "Report template should not have an upload section"
 
 
 def test_map_has_slope_overlay(rendered_page):

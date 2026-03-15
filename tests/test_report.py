@@ -31,7 +31,7 @@ def _minimal_payload() -> dict:
     }
 
 
-def test_generate_report_omits_upload_ui(monkeypatch, tmp_path, terrain_loader):
+def test_generate_report_has_results_section(monkeypatch, tmp_path, terrain_loader):
     monkeypatch.setattr("skitur.report.build_analysis_payload", lambda _, **kw: _minimal_payload())
 
     gpx_path = tmp_path / "route.gpx"
@@ -42,8 +42,8 @@ def test_generate_report_omits_upload_ui(monkeypatch, tmp_path, terrain_loader):
     html = out.read_text(encoding="utf-8")
 
     assert 'id="upload-section"' not in html
-    assert 'id="new-upload-btn"' not in html
-    assert "Analyze Another" not in html
+    assert 'id="results-section"' in html
+    assert "renderResults" in html
 
 
 def test_grid_bounds_have_at_least_min_scale():
