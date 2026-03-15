@@ -19,6 +19,7 @@ TEST_GPX = Path(__file__).parent / "data" / "hood_descent.gpx"
 
 pytestmark = [
     pytest.mark.smoke,
+    pytest.mark.enable_socket,
     pytest.mark.skipif(not BASE_URL, reason="SMOKE_TEST_URL not set"),
 ]
 
