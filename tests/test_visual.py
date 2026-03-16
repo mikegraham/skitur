@@ -47,8 +47,8 @@ def _wait_for_report_render(page, timeout_ms: int = 30_000) -> None:
     )
 
 
-def _intercept_cdn(route):
-    """Serve CDN scripts from local files so tests work offline."""
+def _intercept_static(route):
+    """Serve /static/ assets from local files so tests work offline."""
     url = route.request.url
     if "plotly" in url and url.endswith(".js"):
         route.fulfill(path=str(PLOTLY_JS), content_type="application/javascript")
@@ -110,8 +110,7 @@ def rendered_page():
         page = browser.new_page(viewport={"width": 1200, "height": 900})
 
         # Intercept CDN requests to serve local copies (no internet needed)
-        page.route("**/cdn.plot.ly/**", _intercept_cdn)
-        page.route("**/unpkg.com/leaflet**", _intercept_cdn)
+        page.route("**/static/**", _intercept_static)
 
         page.goto(
             f"http://127.0.0.1:{port}/{tmp_path.name}",
@@ -226,8 +225,7 @@ with sync_playwright() as p:
     browser = p.chromium.launch()
     for i in range(2):
         page = browser.new_page(viewport={"width": 1200, "height": 900})
-        page.route("**/cdn.plot.ly/**", intercept)
-        page.route("**/unpkg.com/leaflet**", intercept)
+        page.route("**/static/**", intercept)
         page.goto(url, wait_until="domcontentloaded")
         page.wait_for_function(WAIT_JS, timeout=30000)
         for sel in selectors:

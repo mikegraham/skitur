@@ -4,10 +4,10 @@
     <title>{{ config.get('SITE_TITLE', 'Skitur') }}</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Preload CDN assets used by the report page so they're cached when needed -->
-    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" as="style" crossorigin="anonymous" />
-    <link rel="preload" href="https://cdn.plot.ly/plotly-3.3.1.min.js" as="script" crossorigin="anonymous" />
-    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script" crossorigin="anonymous" />
+    <!-- Preload static assets used by the report page -->
+    <link rel="preload" href="/static/leaflet-1.9.4.css" as="style" />
+    <link rel="preload" href="/static/plotly-3.3.1.min.js" as="script" />
+    <link rel="preload" href="/static/leaflet-1.9.4.js" as="script" />
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { overflow-x: hidden; }
