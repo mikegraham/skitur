@@ -112,3 +112,53 @@ def test_analyze_html(warm_service):
     assert "leaflet" in resp.text.lower()
     # Verify it contains actual track data (not just the template)
     assert "hood_descent" in resp.text
+
+
+def test_report_renders_in_browser(warm_service):
+    """Upload a GPX via the real form POST and verify the report renders.
+
+    Uses Playwright to check that CDN scripts load, Plotly charts render,
+    and the Leaflet map has a slope overlay. This catches issues like
+    SRI hash failures, Cloudflare script injection, or broken CDN links.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        pytest.skip("playwright not installed")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1200, "height": 900})
+
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+
+        # Go to landing page, upload GPX via the form
+        page.goto(f"{BASE_URL}/")
+        page.set_input_files(
+            'input[name="gpx_file"]', str(TEST_GPX),
+        )
+
+        # Wait for the report to render (form POST navigates to /analyze)
+        page.wait_for_function(
+            """() => {
+                const results = document.getElementById('results-section');
+                if (!results) return false;
+                if (window.getComputedStyle(results).display === 'none')
+                    return false;
+                const hasChart = !!document.querySelector(
+                    '#elevation-chart .plot-container'
+                );
+                const hasMap = Array.from(
+                    document.querySelectorAll('#map img')
+                ).some(img => img.src && img.src.startsWith('data:image/png'));
+                const hasScore = !!document.querySelector('.score-total');
+                return hasChart && hasMap && hasScore;
+            }""",
+            timeout=180_000,
+        )
+
+        # Verify no JS errors (catches SRI failures, missing globals, etc.)
+        assert len(errors) == 0, f"JS errors on live report: {errors}"
+
+        browser.close()
