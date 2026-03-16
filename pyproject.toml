@@ -24,6 +24,7 @@ dev = [
     "hypothesis",
     "playwright",
     "pytest",
+    "requests",
     "pytest-cov",
     "pytest-ruff",
     "pytest-randomly",
