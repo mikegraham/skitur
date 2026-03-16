@@ -38,5 +38,5 @@ jobs:
         if: success()
         run: |
           pip install requests pytest
-          SMOKE_TEST_URL=https://fjell.ski python -m pytest tests/test_smoke.py -v --timeout=180
+          SMOKE_TEST_URL=https://fjell.ski python -m pytest tests/test_smoke.py -v --timeout=180 --noconftest --override-ini="addopts="
         continue-on-error: true

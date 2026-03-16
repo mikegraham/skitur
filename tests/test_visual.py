@@ -128,6 +128,130 @@ def rendered_page():
 
 
 
+def test_rendering_is_deterministic():
+    """Two renders of the same report produce identical element screenshots.
+
+    Runs in a subprocess to avoid conflicts with the module-scoped
+    rendered_page fixture (which other tests may mutate).
+    """
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c", _DETERMINISM_SCRIPT],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        pytest.fail(f"Determinism check failed:\n{result.stdout}\n{result.stderr}")
+
+
+_DETERMINISM_SCRIPT = r"""
+import re
+import sys
+import tempfile
+import threading
+from functools import partial
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+from skitur.app import app
+from skitur.report import build_embedded_report_html
+
+ROOT = Path.cwd()
+GPX = ROOT / "tests" / "data" / "Twin_Lakes.gpx"
+PLOTLY_JS = str(ROOT / "skitur" / "static" / "plotly-3.3.1.min.js")
+LEAFLET_JS = str(ROOT / "tests" / "data" / "leaflet-1.9.4.js")
+LEAFLET_CSS = str(ROOT / "tests" / "data" / "leaflet-1.9.4.css")
+
+def intercept(route):
+    url = route.request.url
+    if "plotly" in url and url.endswith(".js"):
+        route.fulfill(path=PLOTLY_JS, content_type="application/javascript")
+    elif "leaflet" in url and url.endswith(".js"):
+        route.fulfill(path=LEAFLET_JS, content_type="application/javascript")
+    elif "leaflet" in url and url.endswith(".css"):
+        route.fulfill(path=LEAFLET_CSS, content_type="text/css")
+    else:
+        route.continue_()
+
+client = app.test_client()
+with GPX.open("rb") as f:
+    resp = client.post(
+        "/api/analyze",
+        data={"gpx_file": (f, "Twin_Lakes.gpx")},
+        content_type="multipart/form-data",
+    )
+assert resp.status_code == 200
+data = resp.get_json()
+
+tpl = (ROOT / "skitur" / "templates" / "report.html").read_text()
+html = build_embedded_report_html(tpl, data, "Twin_Lakes.gpx")
+html = re.sub(r'\s+integrity="[^"]*"', "", html)
+
+tmp = tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w")
+tmp.write(html)
+tmp.close()
+tmp_path = Path(tmp.name)
+
+handler = partial(SimpleHTTPRequestHandler, directory=str(tmp_path.parent))
+server = HTTPServer(("127.0.0.1", 0), handler)
+port = server.server_address[1]
+threading.Thread(target=server.serve_forever, daemon=True).start()
+
+WAIT_JS = '''() => {
+    const results = document.getElementById('results-section');
+    if (!results || window.getComputedStyle(results).display === 'none') return false;
+    const qs = (s) => document.querySelector(s) !== null;
+    const slope = Array.from(document.querySelectorAll('#map img'))
+      .some((img) => img.src && img.src.startsWith('data:image/png'));
+    const track = qs('#map canvas');
+    const elev = qs('#elevation-chart .plot-container');
+    const hist = qs('#histogram-chart .plot-container');
+    const score = qs('.score-total');
+    return slope && track && elev && hist && score;
+}'''
+
+url = f"http://127.0.0.1:{port}/{tmp_path.name}"
+selectors = [
+    "#score-panel", "#stats-panel", "#elevation-chart",
+    "#slopes-chart", "#histogram-chart",
+]
+runs = [[], []]
+
+with sync_playwright() as p:
+    browser = p.chromium.launch()
+    for i in range(2):
+        page = browser.new_page(viewport={"width": 1200, "height": 900})
+        page.route("**/cdn.plot.ly/**", intercept)
+        page.route("**/unpkg.com/leaflet**", intercept)
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_function(WAIT_JS, timeout=30000)
+        for sel in selectors:
+            el = page.query_selector(sel)
+            assert el, f"{sel} not found on render {i+1}"
+            runs[i].append(el.screenshot())
+        page.close()
+    browser.close()
+
+server.shutdown()
+tmp_path.unlink(missing_ok=True)
+
+failed = []
+for j, sel in enumerate(selectors):
+    if runs[0][j] != runs[1][j]:
+        failed.append(sel)
+
+if failed:
+    print(f"FAIL: screenshots differ for: {', '.join(failed)}", file=sys.stderr)
+    sys.exit(1)
+print("OK: all element screenshots identical across two renders")
+"""
+
+
 def test_results_section_visible(rendered_page):
     """The results section should be displayed (display != 'none')."""
     page = rendered_page
