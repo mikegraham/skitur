@@ -24,6 +24,10 @@
                                      background: linear-gradient(90deg, #4a7c59, #6a9fb5);
                                      border-radius: 2px; margin: 8px auto 0; }
         #upload-section p { color: #666; margin-bottom: 24px; font-size: 1.05em; }
+        .badge-experimental { font-size: 0.32em; vertical-align: middle;
+                              background: #f59e0b; color: white; padding: 2px 8px;
+                              border-radius: 4px; letter-spacing: 0.05em;
+                              font-weight: 600; position: relative; top: -0.15em; }
         .github-corner:hover .octo-arm { animation: octocat-wave 560ms ease-in-out; }
         @keyframes octocat-wave {
             0%, 100% { transform: rotate(0); }
@@ -79,7 +83,7 @@
             </svg>
         </a>
         <div id="upload-section">
-            <h1>{{ config.get('SITE_TITLE', 'Skitur') }}</h1>
+            <h1>{{ config.get('SITE_TITLE', 'Skitur') }} <span class="badge-experimental">EXPERIMENTAL</span></h1>
             <p>Terrain and slope analysis for your XC ski tours</p>
             <form id="upload-form" method="POST" action="/analyze" enctype="multipart/form-data">
                 <label class="file-label" for="gpx-input">Choose a GPX file</label>

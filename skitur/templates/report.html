@@ -15,6 +15,11 @@
                min-height: 100vh; color: #333; }
 
         .disclaimer { color: #666; font-size: 0.84em; line-height: 1.5; }
+        .header-branding { color: #999; font-weight: 400; font-size: 0.7em; }
+        .badge-experimental { font-size: 0.7em;
+                              background: #f59e0b; color: white; padding: 2px 8px;
+                              border-radius: 4px; letter-spacing: 0.05em;
+                              font-weight: 600; }
 
         #results-section { max-width: 1100px; margin: 0 auto; padding: 20px; display: none; }
         #header-bar { display: flex; justify-content: space-between;
@@ -155,7 +160,7 @@
 <body>
         <div id="results-section">
             <div id="header-bar">
-                <h2 id="tour-name"></h2>
+                <h2><span id="tour-name"></span> <span class="header-branding">- fjell.ski <span class="badge-experimental">EXPERIMENTAL</span></span></h2>
                 <a id="new-upload-btn" href="/">Analyze Another</a>
             </div>
 
