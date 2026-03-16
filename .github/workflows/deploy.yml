@@ -38,4 +38,4 @@ jobs:
         if: success()
         run: |
           pip install requests pytest pytest-socket
-          SMOKE_TEST_URL=https://fjell.ski python -m pytest tests/test_smoke.py -v --timeout=180 --noconftest -o "addopts="
+          SMOKE_TEST_URL=https://fjell.ski python -m pytest tests/test_smoke.py -v --timeout=180 --noconftest -o "addopts=" -o "required_plugins="
