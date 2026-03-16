@@ -557,25 +557,10 @@ class TerrainLoader:
         tile_cache = self.cache_dir / source.name
         tile_cache.mkdir(parents=True, exist_ok=True)
 
-        # Diagnostic: check cached tiles before stitching
-        import rasterio  # noqa: PLC0415
-        tiles_df = get_overlapping_dem_tiles(fetch_bounds, source.name)
-        for _, row in tiles_df.iterrows():
-            fname = row["url"].split("/")[-1].replace(".zip", ".tif")
-            cached = tile_cache / fname
-            if cached.exists():
-                try:
-                    with rasterio.open(cached) as ds:
-                        sample = ds.read(1, window=rasterio.windows.Window(0, 0, 1, 1))
-                        logger.warning(
-                            "DIAG tile %s: size=%d shape=%s sample=%s nan=%s",
-                            fname, cached.stat().st_size, ds.shape, sample.flat[0],
-                            np.isnan(sample.flat[0]),
-                        )
-                except Exception as exc:
-                    logger.warning("DIAG tile %s: CORRUPT - %s", fname, exc)
-            else:
-                logger.warning("DIAG tile %s: NOT CACHED", fname)
+        # Purge any cached tiles that are unreadable (truncated/corrupt).
+        # Corrupt tiles persist forever because dem-stitcher skips existing
+        # files. They come from interrupted writes (process killed mid-download).
+        self._purge_corrupt_tiles(tile_cache, fetch_bounds, source.name)
 
         data, profile = _stitch_dem_fast(
             stitch_dem,
@@ -603,15 +588,75 @@ class TerrainLoader:
             msg = f"DEM data has non-float dtype {data.dtype}; expected float32 or float64"
             raise TypeError(msg)
 
-        valid_count = int(np.count_nonzero(~np.isnan(data)))
-        logger.warning(
-            "DIAG stitched result: shape=%s dtype=%s valid=%d/%d (%.1f%%) "
-            "range=[%.1f, %.1f] x=[%.6f,%.6f] y=[%.6f,%.6f]",
-            data.shape, data.dtype, valid_count, data.size,
-            valid_count / max(data.size, 1) * 100,
-            float(np.nanmin(data)) if valid_count else 0,
-            float(np.nanmax(data)) if valid_count else 0,
-            x_coords[0], x_coords[-1], y_coords[0], y_coords[-1],
-        )
+        # If the stitched result is entirely NaN, the cached tiles are likely
+        # corrupt. Purge them and retry once.
+        valid_frac = np.count_nonzero(~np.isnan(data)) / max(data.size, 1)
+        if valid_frac < 0.01:
+            logger.warning(
+                "DEM %s returned %.1f%% valid data -- purging tiles and retrying",
+                source.name, valid_frac * 100,
+            )
+            self._purge_corrupt_tiles(tile_cache, fetch_bounds, source.name)
+            data, profile = _stitch_dem_fast(
+                stitch_dem,
+                bounds=fetch_bounds,
+                dem_name=source.name,
+                dst_ellipsoidal_height=False,
+                dst_area_or_point="Point",
+                dst_resolution=source.resolution,
+                dst_tile_dir=tile_cache,
+            )
+            if data.ndim == 3:
+                data = data[0]
+            x_coords, y_coords = _coords_from_profile(profile, data)
+            if len(x_coords) > 1 and x_coords[0] > x_coords[-1]:
+                x_coords = x_coords[::-1]
+                data = data[:, ::-1]
+            if len(y_coords) > 1 and y_coords[0] > y_coords[-1]:
+                y_coords = y_coords[::-1]
+                data = data[::-1, :]
 
         return Terrain(x_coords=x_coords, y_coords=y_coords, data=data)
+
+    @staticmethod
+    def _purge_corrupt_tiles(
+        tile_dir: Path, bounds: list[float], dem_name: str,
+    ) -> None:
+        """Delete cached tiles that can't be read or contain no valid data.
+
+        Corrupt tiles come from interrupted writes (process killed mid-download,
+        VM preemption, etc.). They have valid TIFF headers but missing or
+        nodata-filled raster blocks. dem-stitcher skips existing files, so
+        corrupt tiles persist forever unless explicitly purged.
+        """
+        import rasterio  # noqa: PLC0415
+
+        tiles = get_overlapping_dem_tiles(bounds, dem_name)
+        for _, row in tiles.iterrows():
+            filename = row["url"].split("/")[-1].replace(".zip", ".tif")
+            cached = tile_dir / filename
+            if not cached.exists():
+                continue
+            try:
+                with rasterio.open(cached) as ds:
+                    # Read a small patch at center to check for valid data.
+                    r, c = ds.shape[0] // 2, ds.shape[1] // 2
+                    w = rasterio.windows.Window(max(c - 50, 0), max(r - 50, 0), 100, 100)
+                    patch = ds.read(1, window=w)
+                    has_valid = bool(np.any(
+                        (patch != ds.nodata) & ~np.isnan(patch)
+                    )) if ds.nodata is not None else bool(np.any(~np.isnan(patch)))
+                if has_valid:
+                    continue
+                # All-nodata at center. Could be legitimately empty (ocean tile)
+                # or corrupt. Check file size -- corrupt tiles from interrupted
+                # writes are usually much smaller than expected.
+                # A full 3DEP tile is ~400-500MB; GLO-30 is ~200-400MB.
+                # Skip small tiles that might legitimately be mostly water.
+                if cached.stat().st_size < 50_000_000:
+                    continue
+                logger.warning("Purging corrupt tile: %s (%d bytes, center all nodata)",
+                               filename, cached.stat().st_size)
+            except (OSError, rasterio.errors.RasterioIOError):
+                logger.warning("Purging unreadable tile: %s", filename)
+            cached.unlink(missing_ok=True)

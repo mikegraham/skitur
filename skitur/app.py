@@ -70,51 +70,6 @@ def healthz():
     )
 
 
-@app.route("/diag/dem-tile")
-def diag_dem_tile():
-    """Diagnostic: inspect a cached DEM tile on the server."""
-    import hashlib
-
-    import numpy as np
-    import rasterio
-
-    lat = request.args.get("lat", type=float, default=46.15)
-    lon = request.args.get("lon", type=float, default=-122.18)
-    from dem_stitcher import get_overlapping_dem_tiles
-
-    results = {}
-    for src_name in ("3dep", "glo_30"):
-        bounds = [lon - 0.05, lat - 0.05, lon + 0.05, lat + 0.05]
-        tiles = get_overlapping_dem_tiles(bounds, src_name)
-        for _, row in tiles.iterrows():
-            fname = row["url"].split("/")[-1].replace(".zip", ".tif")
-            cached = _terrain_loader.cache_dir / src_name / fname
-            info = {"source": src_name, "filename": fname, "exists": cached.exists()}
-            if cached.exists():
-                info["size_bytes"] = cached.stat().st_size
-                info["md5"] = hashlib.md5(cached.read_bytes()).hexdigest()  # noqa: S324
-                try:
-                    with rasterio.open(cached) as ds:
-                        info["shape"] = list(ds.shape)
-                        info["bounds"] = [ds.bounds.left, ds.bounds.bottom,
-                                          ds.bounds.right, ds.bounds.top]
-                        info["crs"] = str(ds.crs)
-                        # Read a patch around the requested point
-                        r, c = ds.index(lon, lat)
-                        w = rasterio.windows.Window(max(c - 5, 0), max(r - 5, 0), 10, 10)
-                        patch = ds.read(1, window=w)
-                        info["patch_min"] = float(np.nanmin(patch))
-                        info["patch_max"] = float(np.nanmax(patch))
-                        info["patch_nan_frac"] = float(np.isnan(patch).mean())
-                except Exception as exc:
-                    info["read_error"] = str(exc)
-            results[f"{src_name}/{fname}"] = info
-
-    return Response(
-        orjson.dumps(results, option=orjson.OPT_INDENT_2),
-        content_type="application/json",
-    )
-
 
 def _json_error(msg: str, status: int = 400) -> tuple[Response, int]:
     body = orjson.dumps({"error": msg})

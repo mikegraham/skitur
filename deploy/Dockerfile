@@ -22,6 +22,12 @@ RUN pip install --no-cache-dir . gunicorn requests
 RUN python -c "from dem_stitcher.datasets import get_global_dem_tile_extents; \
     [get_global_dem_tile_extents(d) for d in ('3dep', 'glo_30', 'glo_90_missing')]"
 
+# Retry failed HTTP range requests when reading remote DEM tiles.
+# Default is 0 (no retries), which causes silent nodata fills on
+# transient network errors.
+ENV GDAL_HTTP_MAX_RETRY=3
+ENV GDAL_HTTP_RETRY_DELAY=5
+
 EXPOSE 8000
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
