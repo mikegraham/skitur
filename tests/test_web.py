@@ -301,12 +301,11 @@ def test_analyze_web_returns_html(client):
     assert 'id="upload-section"' not in html
 
 
-def test_analyze_web_error_returns_json(client):
-    """POST /analyze with no file should return JSON error."""
+def test_analyze_web_error_redirects(client):
+    """POST /analyze with no file should redirect to landing page with error."""
     resp = client.post("/analyze")
-    assert resp.status_code == 400
-    data = json.loads(resp.data)
-    assert "error" in data
+    assert resp.status_code == 302
+    assert "error=" in resp.headers["Location"]
 
 
 def test_analyze_success(client):
@@ -506,13 +505,13 @@ def test_grid_aspect_ratio_reasonable(analysis_data):
 
 def test_report_template_has_no_upload_section():
     """The report template should not contain the upload section."""
-    template = (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").read_text()
+    template = (Path(__file__).parent.parent / "skitur" / "templates" / "report.html").read_text()
     assert 'id="upload-section"' not in template
     assert 'id="results-section"' in template
 
 
 def _read_report_template():
-    return (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").read_text()
+    return (Path(__file__).parent.parent / "skitur" / "templates" / "report.html").read_text()
 
 
 def test_template_has_no_opentopo_tiles():
@@ -690,7 +689,7 @@ def rendered_page(analysis_data):
     from functools import partial
     from http.server import HTTPServer, SimpleHTTPRequestHandler
 
-    with (Path(__file__).parent.parent / "skitur" / "templates" / "index.html").open() as f:
+    with (Path(__file__).parent.parent / "skitur" / "templates" / "report.html").open() as f:
         template_html = f.read()
 
     html = build_embedded_report_html(template_html, analysis_data, "test.gpx")

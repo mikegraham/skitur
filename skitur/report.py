@@ -266,7 +266,7 @@ def generate_report(
         output_path = gpx_path.with_name(gpx_path.stem + "_report.html")
 
     data = build_analysis_payload(gpx_path, terrain_loader=terrain_loader)
-    template_html = (Path(__file__).parent / "templates" / "index.html").read_text()
+    template_html = (Path(__file__).parent / "templates" / "report.html").read_text()
 
     filename = gpx_path.stem.replace("_", " ")
     html = build_embedded_report_html(template_html, data, filename)

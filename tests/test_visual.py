@@ -80,7 +80,7 @@ def rendered_page():
     data = resp.get_json()
     assert data is not None
 
-    template_path = Path(__file__).parent.parent / "skitur" / "templates" / "index.html"
+    template_path = Path(__file__).parent.parent / "skitur" / "templates" / "report.html"
     template_html = template_path.read_text()
 
     html = build_embedded_report_html(template_html, data, "Twin_Lakes.gpx")

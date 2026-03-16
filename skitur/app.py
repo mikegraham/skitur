@@ -13,7 +13,7 @@ import orjson
 from cachetools import LRUCache
 from dem_stitcher.datasets import get_global_dem_tile_extents
 from dem_stitcher.exceptions import NoDEMCoverage
-from flask import Flask, Response, render_template, request
+from flask import Flask, Response, redirect, render_template, request, url_for
 
 from skitur.report import EmptyTrackError, build_analysis_payload, build_embedded_report_html
 from skitur.terrain import ExtentTooLargeError, TerrainLoader
@@ -55,7 +55,7 @@ _terrain_loader = TerrainLoader(cache_dir=app.config["DEM_CACHE_DIR"])
 
 @app.route("/")
 def index():
-    resp = Response(render_template("landing.html"), content_type="text/html")
+    resp = Response(render_template("index.html"), content_type="text/html")
     resp.cache_control.public = True
     resp.cache_control.max_age = 300           # browser: 5 min
     resp.headers["CDN-Cache-Control"] = "max-age=604800"  # CDN: 1 week (purged on deploy)
@@ -136,12 +136,25 @@ def api_analyze():
 
 @app.route("/analyze", methods=["POST"])
 def analyze_web():
-    """Analyze GPX and return a full HTML report page."""
-    def _do():
-        gpx_file = request.files["gpx_file"]
+    """Analyze GPX and return a full HTML report page.
+
+    On error, redirects back to the landing page with an error query param.
+    """
+    if "gpx_file" not in request.files or request.files["gpx_file"].filename == "":
+        return redirect(url_for("index", error="No GPX file selected"))
+    gpx_file = request.files["gpx_file"]
+    try:
         body = _get_analysis_json(gpx_file.read())
         data = orjson.loads(body)
-        template_html = render_template("index.html")
+        template_html = render_template("report.html")
         html = build_embedded_report_html(template_html, data, gpx_file.filename or "track")
         return Response(html, content_type="text/html")
-    return _handle_analysis_errors(_do)
+    except (ValueError, EmptyTrackError) as exc:
+        return redirect(url_for("index", error=str(exc)))
+    except ExtentTooLargeError as exc:
+        return redirect(url_for("index", error=str(exc)))
+    except NoDEMCoverage:
+        return redirect(url_for("index", error="No elevation data for this area"))
+    except Exception:
+        logger.exception("Analysis failed")
+        return redirect(url_for("index", error="Analysis failed. Please try again."))
