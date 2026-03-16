@@ -65,9 +65,34 @@ def test_analyze_json(warm_service):
     data = resp.json()
     for key in ("track", "stats", "score", "slope_grid", "contours"):
         assert key in data, f"Missing key: {key}"
+
+    # Track structure
     assert len(data["track"]) > 10
-    assert data["stats"]["total_distance_m"] > 0
-    assert 0 <= data["score"]["total"] <= 100
+    pt = data["track"][5]
+    for key in ("lat", "lon", "elevation", "distance", "track_slope", "ground_slope"):
+        assert key in pt, f"Track point missing key: {key}"
+    assert 45.3 < pt["lat"] < 45.4, "Track should be on Mt Hood"
+
+    # Stats
+    stats = data["stats"]
+    assert stats["total_distance_m"] > 3000, "Hood descent should be >3km"
+    assert stats["elevation_loss_m"] > 1000, "Hood descent should lose >1000m"
+
+    # Score
+    score = data["score"]
+    assert 0 <= score["total"] <= 100
+    assert score["total"] < 60, "Hood descent should score poorly as XC tour"
+    assert score["pct_avy_terrain"] > 0, "Hood should have avy terrain"
+    for key in ("downhill_quality", "uphill_quality", "avy_exposure"):
+        assert key in score, f"Score missing key: {key}"
+
+    # Slope grid
+    sg = data["slope_grid"]
+    assert sg["rows"] > 0 and sg["cols"] > 0
+    assert len(sg["data"]) == sg["rows"] * sg["cols"]
+
+    # Contours
+    assert len(data["contours"]["major"]) > 0, "Should have contour lines"
 
 
 def test_analyze_html(warm_service):
@@ -79,5 +104,11 @@ def test_analyze_html(warm_service):
         )
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
-    assert "renderResults" in resp.text
     assert 'id="results-section"' in resp.text
+    assert 'id="upload-section"' not in resp.text
+    # Verify the report has embedded data and rendering code
+    assert "renderResults" in resp.text
+    assert "Plotly" in resp.text or "plotly" in resp.text
+    assert "leaflet" in resp.text.lower()
+    # Verify it contains actual track data (not just the template)
+    assert "hood_descent" in resp.text

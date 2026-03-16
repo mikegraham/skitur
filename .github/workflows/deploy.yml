@@ -23,3 +23,10 @@ jobs:
             -H "Content-Type: application/json" \
             --data '{"purge_everything":true}'
         continue-on-error: true
+
+      - name: Smoke test
+        if: success()
+        run: |
+          pip install requests
+          SMOKE_TEST_URL=https://fjell.ski pytest tests/test_smoke.py -v --timeout=180
+        continue-on-error: true
