@@ -93,7 +93,7 @@
             text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
         }
 
-        /* ── Responsive: single column on narrow screens ─────────── */
+        /* -- Responsive: single column on narrow screens ----------- */
         @media (max-width: 700px) {
             #header-bar { flex-direction: column; align-items: stretch; gap: 8px; }
             #header-bar h2 { font-size: 1.2em; line-height: 1.2; overflow-wrap: anywhere; }
@@ -233,21 +233,21 @@
     </div>
 
 <script>
-// ── Constants ──────────────────────────────────────────────────────
+// -- Constants ------------------------------------------------------
 const M_TO_FT = 3.28084;
 const KM_TO_MI = 0.621371;
 
-// Track slope colormap anchors: 0-20° range, saturates to black at 20°
+// Track slope colormap anchors: 0-20 deg range, saturates to black at 20 deg
 const TRACK_CMAP_ANCHORS = [
-    [0/20,    [0.15, 0.75, 0.15]],  // 0°: green
-    [2/20,    [0.15, 0.75, 0.15]],  // 2°: green
-    [4.5/20,  [1.0,  0.92, 0.0]],   // 4.5°: yellow
-    [6/20,    [1.0,  0.65, 0.0]],   // 6°: orange-yellow
-    [8/20,    [1.0,  0.35, 0.0]],   // 8°: orange
-    [11/20,   [0.85, 0.08, 0.0]],   // 11°: red-orange
-    [13/20,   [0.65, 0.0,  0.0]],   // 13°: red
-    [15/20,   [0.35, 0.0,  0.0]],   // 15°: dark red
-    [1.0,     [0.0,  0.0,  0.0]],   // 20°: black
+    [0/20,    [0.15, 0.75, 0.15]],  // 0 deg: green
+    [2/20,    [0.15, 0.75, 0.15]],  // 2 deg: green
+    [4.5/20,  [1.0,  0.92, 0.0]],   // 4.5 deg: yellow
+    [6/20,    [1.0,  0.65, 0.0]],   // 6 deg: orange-yellow
+    [8/20,    [1.0,  0.35, 0.0]],   // 8 deg: orange
+    [11/20,   [0.85, 0.08, 0.0]],   // 11 deg: red-orange
+    [13/20,   [0.65, 0.0,  0.0]],   // 13 deg: red
+    [15/20,   [0.35, 0.0,  0.0]],   // 15 deg: dark red
+    [1.0,     [0.0,  0.0,  0.0]],   // 20 deg: black
 ];
 
 function slopeToColor(slopeDeg) {
@@ -267,7 +267,7 @@ function slopeToColor(slopeDeg) {
     return `rgb(${r},${g},${b})`;
 }
 
-// Ground slope colormap — hard transitions at 30° and 45° only.
+// Ground slope colormap -- hard transitions at 30 deg and 45 deg only.
 //   0-30   : cool bluish-green -> sage -> muted tan (safe terrain, desaturated)
 //   30-45  : bold orange -> red -> dark red         (avalanche-prone, HIGH saturation)
 //   45+    : gray                                   (rock/ice, too steep for snow)
@@ -281,23 +281,23 @@ const GROUND_CMAP = (function() {
         const slope = (i / 255) * 47; // 0-47 degrees
         let r, g, b;
         if (slope < 30) {
-            // 0-30°: dynamic but washed-out, with no blue bias.
+            // 0-30 deg: dynamic but washed-out, with no blue bias.
             // Progression: muted green -> grayish tan -> pale yellow.
             const t = slope / 30;
             if (t < 0.45) {
-                // 0-13.5°: muted green to sage-khaki
+                // 0-13.5 deg: muted green to sage-khaki
                 const s = smoothstep(t / 0.45);
                 r = lerp(0.62, 0.68, s);
                 g = lerp(0.74, 0.73, s);
                 b = lerp(0.58, 0.56, s);
             } else if (t < 0.70) {
-                // 13.5-21°: sage-khaki to a short grayish tan transition
+                // 13.5-21 deg: sage-khaki to a short grayish tan transition
                 const s = smoothstep((t - 0.45) / 0.25);
                 r = lerp(0.68, 0.77, s);
                 g = lerp(0.73, 0.76, s);
                 b = lerp(0.56, 0.54, s);
             } else {
-                // 21-30°: short tan -> longer washed-out yellow ramp (not orange)
+                // 21-30 deg: short tan -> longer washed-out yellow ramp (not orange)
                 const s = smoothstep((t - 0.70) / 0.30);
                 r = lerp(0.77, 0.88, s);
                 g = lerp(0.76, 0.86, s);
@@ -306,26 +306,26 @@ const GROUND_CMAP = (function() {
         } else if (slope < 45) {
             // 30+: keep a short vivid orange shelf, then turn red sooner.
             if (slope < 34) {
-                // 30-34°: solid vivid orange (short plateau)
+                // 30-34 deg: solid vivid orange (short plateau)
                 const s = (slope - 30) / 4;
                 r = 0.95;
                 g = 0.55 - 0.05 * s;
                 b = 0.05;
             } else if (slope < 37) {
-                // 34-37°: rapid orange -> red (so red appears ~3° earlier)
+                // 34-37 deg: rapid orange -> red (so red appears ~3 deg earlier)
                 const s = (slope - 34) / 3;
                 r = 0.95 - 0.10 * s;
                 g = 0.50 - 0.25 * s;
                 b = 0.05;
             } else {
-                // 37-45°: red to dark red
+                // 37-45 deg: red to dark red
                 const s = (slope - 37) / 8;
                 r = 0.85 - 0.30 * s;
                 g = 0.25 - 0.15 * s;
                 b = 0.05 + 0.01 * s;
             }
         } else {
-            // HARD transition at 45 — gray
+            // HARD transition at 45 -- gray
             r = 0.5; g = 0.5; b = 0.5;
         }
         lut[i * 4 + 0] = Math.round(r * 255);
@@ -348,16 +348,16 @@ function scoreColor(val) {
     return "#dc2626";
 }
 
-// ── Disclaimer (single source of truth) ───────────────────────────
+// -- Disclaimer (single source of truth) ---------------------------
 const DISCLAIMER = '<strong>USE AT YOUR OWN RISK.</strong> Winter travel involves inherent risks of injury and death. Skitur provides automated terrain analysis provided "AS IS" and "WITH ALL FAULTS" without warranties of any kind, including accuracy or fitness for a particular purpose. This report is for informational purposes only and does not constitute professional advice. This report is not a substitute for official forecasts, education, or field judgment.';
 document.querySelectorAll(".disclaimer").forEach(el => { el.innerHTML = DISCLAIMER; });
 
-// ── State ──────────────────────────────────────────────────────────
+// -- State ----------------------------------------------------------
 let trackData = null;
 let map = null;
 let hoverMarker = null;
 
-// ── Render Results ─────────────────────────────────────────────────
+// -- Render Results -------------------------------------------------
 function renderResults(data, filename) {
     document.getElementById("results-section").style.display = "block";
     document.getElementById("tour-name").textContent =
@@ -368,7 +368,7 @@ function renderResults(data, filename) {
     renderLegends();
 
     // Defer map/chart rendering until after the browser has laid out the
-    // now-visible results section — Leaflet and Plotly need non-zero
+    // now-visible results section -- Leaflet and Plotly need non-zero
     // container dimensions to render correctly.
     requestAnimationFrame(() => {
         try { renderMap(data.track, data.slope_grid, data.contours); } catch(e) { console.error("renderMap:", e); }
@@ -381,7 +381,7 @@ function renderResults(data, filename) {
     });
 }
 
-// ── Score Panel ────────────────────────────────────────────────────
+// -- Score Panel ----------------------------------------------------
 function renderScore(score) {
     const panel = document.getElementById("score-panel");
     function bar(label, value, opts) {
@@ -414,7 +414,7 @@ function renderScore(score) {
         </div>`;
 }
 
-// ── Stats Panel ────────────────────────────────────────────────────
+// -- Stats Panel ----------------------------------------------------
 function renderStats(stats) {
     const panel = document.getElementById("stats-panel");
     const distMi = (stats.total_distance_m / 1000) * KM_TO_MI;
@@ -440,9 +440,9 @@ function renderStats(stats) {
         </table>`;
 }
 
-// ── Gradient Track Layer ───────────────────────────────────────────
+// -- Gradient Track Layer -------------------------------------------
 // Custom Leaflet canvas layer that draws the track as a single continuous
-// path with smooth color transitions and proper miter joins — no gaps,
+// path with smooth color transitions and proper miter joins -- no gaps,
 // no overlapping dots, no caterpillar artifacts.
 const GradientTrackLayer = L.Layer.extend({
     initialize(track, options) {
@@ -508,7 +508,7 @@ const GradientTrackLayer = L.Layer.extend({
         const lineWidth = 6;
         const borderWidth = 8;
 
-        // Pass 1: white border — single continuous path with miter joins
+        // Pass 1: white border -- single continuous path with miter joins
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for (let i = 1; i < pts.length; i++) {
@@ -558,7 +558,7 @@ const GradientTrackLayer = L.Layer.extend({
     },
 });
 
-// ── Slope Grid Image Overlay ──────────────────────────────────────
+// -- Slope Grid Image Overlay --------------------------------------
 // Renders the slope grid to a static PNG image and uses Leaflet's
 // L.imageOverlay to display it. The browser handles all DPI scaling
 // natively for <img> elements, so this is immune to browser zoom
@@ -584,7 +584,7 @@ function renderSlopeImage(g) {
             const idx = (imgOff + col) * 4;
 
             if (slope < 0) {
-                // No data — transparent
+                // No data -- transparent
                 pixels[idx] = pixels[idx+1] = pixels[idx+2] = pixels[idx+3] = 0;
                 continue;
             }
@@ -601,7 +601,7 @@ function renderSlopeImage(g) {
     return canvas.toDataURL("image/png");
 }
 
-// ── Map Legends (canvas-drawn for pixel-perfect alignment) ────────
+// -- Map Legends (canvas-drawn for pixel-perfect alignment) --------
 function renderLegends() {
     _drawGroundLegend(document.getElementById("ground-legend"));
     _drawTrackLegend(document.getElementById("track-legend"));
@@ -666,7 +666,7 @@ function _drawCanvasLegend(container, opts) {
 
         function drawTicks(ticks, side) {
             for (const t of ticks) {
-                // Map frac 0→barBottom, 1→barTop, aligned to bar edges
+                // Map frac 0->barBottom, 1->barTop, aligned to bar edges
                 const y = Math.round(barTop + (barH - 1) * (1 - t.frac)) + 0.5;
                 const tickLen = t.label ? 6 : 3;
                 ctx.beginPath();
@@ -719,7 +719,7 @@ function _drawGroundLegend(el) {
 function _drawTrackLegend(el) {
     const maxDeg = 20;
 
-    // Degree ticks on right (every 1°, labeled every 5°)
+    // Degree ticks on right (every 1 deg, labeled every 5 deg)
     const degTicks = [];
     for (let d = 0; d <= maxDeg; d += 1) {
         degTicks.push({ frac: d / maxDeg, label: d % 5 === 0 ? d + "\u00b0" : null });
@@ -760,7 +760,7 @@ function _drawTrackLegend(el) {
     });
 }
 
-// ── Leaflet Map ────────────────────────────────────────────────────
+// -- Leaflet Map ----------------------------------------------------
 function renderMap(track, slopeGrid, contours) {
     if (map) map.remove();
 
@@ -770,7 +770,7 @@ function renderMap(track, slopeGrid, contours) {
     map = L.map("map", { attributionControl: false, zoomSnap: 0, maxBoundsViscosity: 1.0 });
 
     // Slope angle shading as a static image overlay (fully opaque).
-    // Rendered once to a PNG — the browser handles DPI scaling natively,
+    // Rendered once to a PNG -- the browser handles DPI scaling natively,
     // so this is immune to browser zoom (Ctrl+/-) breaking the shading.
     if (slopeGrid) {
         const slopeDataUrl = renderSlopeImage(slopeGrid);
@@ -779,7 +779,7 @@ function renderMap(track, slopeGrid, contours) {
             [slopeGrid.lat_max, slopeGrid.lon_max],
         ];
         const slopeOverlay = L.imageOverlay(slopeDataUrl, slopeBounds).addTo(map);
-        // Nearest-neighbor scaling: preserves hard color boundaries at 30°/45°
+        // Nearest-neighbor scaling: preserves hard color boundaries at 30 deg/45 deg
         // instead of bilinear-interpolated blur.  Use the load event because
         // getElement() returns null before the image is in the DOM.
         slopeOverlay.on("load", function() {
@@ -810,7 +810,7 @@ function renderMap(track, slopeGrid, contours) {
 
         _contourLabelLayer = L.layerGroup().addTo(map);
 
-        // Sort once — longest lines get label priority (processed first
+        // Sort once -- longest lines get label priority (processed first
         // for collision checks).
         const sortedMajor = contours.major.slice()
             .sort((a, b) => b.coords.length - a.coords.length);
@@ -865,7 +865,7 @@ function renderMap(track, slopeGrid, contours) {
                 if (angle < -90) angle += 180;
 
                 // Place label at the original contour coordinate (exact,
-                // no containerPoint → latLng round-trip).
+                // no containerPoint -> latLng round-trip).
                 L.marker(coords[i], {
                     icon: L.divIcon({
                         className: "contour-label",
@@ -922,7 +922,7 @@ function renderMap(track, slopeGrid, contours) {
         weight: 2, fillOpacity: 0, opacity: 0,
     }).addTo(map);
 
-    // Fit bounds and force size recalc (needed after display:none → block)
+    // Fit bounds and force size recalc (needed after display:none -> block)
     map.invalidateSize();
 
     // Grid bounds are chosen server-side:
@@ -954,7 +954,7 @@ function renderMap(track, slopeGrid, contours) {
         map.on("zoomend", _placeContourLabels);
     }
 
-    // ── Viewport constraint: keep edges within shaded grid ──────────
+    // -- Viewport constraint: keep edges within shaded grid ----------
     // maxBounds constrains the viewport edges during drag and inertia.
     // Temporarily cleared during zoom so Leaflet can freely zoom out
     // to minZoom (maxBounds blocks zoom levels where the viewport
@@ -999,7 +999,7 @@ function renderMap(track, slopeGrid, contours) {
             const minLng = gridBounds.getWest() + vLngSpan / 2;
             const maxLng = gridBounds.getEast() - vLngSpan / 2;
             if (minLat >= maxLat) {
-                // Viewport fills or exceeds grid — center on grid
+                // Viewport fills or exceeds grid -- center on grid
                 lat = (gridBounds.getSouth() + gridBounds.getNorth()) / 2;
             } else {
                 lat = Math.max(minLat, Math.min(maxLat, lat));
@@ -1022,7 +1022,7 @@ function renderMap(track, slopeGrid, contours) {
 
 }
 
-// ── Cross-link: chart hover → map marker ───────────────────────────
+// -- Cross-link: chart hover -> map marker ---------------------------
 function updateHoverMarker(pointIndex) {
     if (!trackData || !hoverMarker) return;
     const point = trackData.track[pointIndex];
@@ -1037,7 +1037,7 @@ function hideHoverMarker() {
     }
 }
 
-// ── Plotly: Elevation Profile ──────────────────────────────────────
+// -- Plotly: Elevation Profile --------------------------------------
 function renderElevationChart(track) {
     const distances = track.map(p => (p.distance / 1000) * KM_TO_MI);
     const elevations = track.map(p => p.elevation != null ? p.elevation * M_TO_FT : null);
@@ -1111,7 +1111,7 @@ function renderElevationChart(track) {
             connectgaps: false,
         }));
 
-    // Invisible marker trace for hover — full-resolution data for accuracy.
+    // Invisible marker trace for hover -- full-resolution data for accuracy.
     const hoverTrace = {
         x: distances, y: elevations,
         mode: "markers",
@@ -1154,7 +1154,7 @@ function renderElevationChart(track) {
     el.on("plotly_unhover", hideHoverMarker);
 }
 
-// ── Plotly: Slopes Profile ─────────────────────────────────────────
+// -- Plotly: Slopes Profile -----------------------------------------
 function renderSlopesChart(track) {
     const distances = track.map(p => (p.distance / 1000) * KM_TO_MI);
     const trackSlopes = track.map(p => p.track_slope != null ? Math.abs(p.track_slope) : null);
@@ -1179,7 +1179,7 @@ function renderSlopesChart(track) {
         type: "scatter",
     };
 
-    // Invisible hover trace — combines both slopes in one tooltip
+    // Invisible hover trace -- combines both slopes in one tooltip
     const hoverTrace = {
         x: distances, y: trackSlopes,
         mode: "markers",
@@ -1199,7 +1199,7 @@ function renderSlopesChart(track) {
         ...groundSlopes.filter(v => v != null),
         5 // minimum
     );
-    const yMax = Math.ceil(maxDeg / 5) * 5; // round up to nearest 5°
+    const yMax = Math.ceil(maxDeg / 5) * 5; // round up to nearest 5 deg
     // Percent grade tick values to show on right axis
     const pctGradeTicks = [];
     for (let pct = 0; pct <= 200; pct += 10) {
@@ -1248,7 +1248,7 @@ function renderSlopesChart(track) {
     el.on("plotly_unhover", hideHoverMarker);
 }
 
-// ── Plotly: Violin (Track vs Ground slope distribution) ───────────
+// -- Plotly: Violin (Track vs Ground slope distribution) -----------
 // Single split violin: track on the left side, ground on the right.
 // Colors match the slope profile chart (blue = track, red = ground).
 function renderTrackDistribution(track) {
@@ -1351,7 +1351,7 @@ function renderTrackDistribution(track) {
     Plotly.newPlot("violin-chart", traces, layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage"] });
 }
 
-// ── Plotly: Ground Angle Distribution ─────────────────────────────
+// -- Plotly: Ground Angle Distribution -----------------------------
 function renderGroundDistribution(track) {
     const slopes = track.filter(p => p.ground_slope != null).map(p => p.ground_slope);
     if (slopes.length === 0) return;
@@ -1401,7 +1401,7 @@ function renderGroundDistribution(track) {
     Plotly.newPlot("histogram-chart", [trace], layout, { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage"] });
 }
 
-// ── Plotly: Aspect Rose (Polar Heatmap) ───────────────────────────
+// -- Plotly: Aspect Rose (Polar Heatmap) ---------------------------
 function renderAspectRose(data) {
     const track = data.track;
 
@@ -1469,7 +1469,7 @@ function renderAspectRose(data) {
         tickText.push(v + "\u00b0");
     }
 
-    // Build barpolar traces — one trace per slope bin so each ring has
+    // Build barpolar traces -- one trace per slope bin so each ring has
     // a consistent color (the slope's ground colormap color).
     const MIN_OPACITY = 0.25;
     const traces = [];
