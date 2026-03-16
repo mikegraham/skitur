@@ -556,6 +556,27 @@ class TerrainLoader:
 
         tile_cache = self.cache_dir / source.name
         tile_cache.mkdir(parents=True, exist_ok=True)
+
+        # Diagnostic: check cached tiles before stitching
+        import rasterio  # noqa: PLC0415
+        tiles_df = get_overlapping_dem_tiles(fetch_bounds, source.name)
+        for _, row in tiles_df.iterrows():
+            fname = row["url"].split("/")[-1].replace(".zip", ".tif")
+            cached = tile_cache / fname
+            if cached.exists():
+                try:
+                    with rasterio.open(cached) as ds:
+                        sample = ds.read(1, window=rasterio.windows.Window(0, 0, 1, 1))
+                        logger.warning(
+                            "DIAG tile %s: size=%d shape=%s sample=%s nan=%s",
+                            fname, cached.stat().st_size, ds.shape, sample.flat[0],
+                            np.isnan(sample.flat[0]),
+                        )
+                except Exception as exc:
+                    logger.warning("DIAG tile %s: CORRUPT - %s", fname, exc)
+            else:
+                logger.warning("DIAG tile %s: NOT CACHED", fname)
+
         data, profile = _stitch_dem_fast(
             stitch_dem,
             bounds=fetch_bounds,
@@ -581,5 +602,16 @@ class TerrainLoader:
         if not np.issubdtype(data.dtype, np.floating):
             msg = f"DEM data has non-float dtype {data.dtype}; expected float32 or float64"
             raise TypeError(msg)
+
+        valid_count = int(np.count_nonzero(~np.isnan(data)))
+        logger.warning(
+            "DIAG stitched result: shape=%s dtype=%s valid=%d/%d (%.1f%%) "
+            "range=[%.1f, %.1f] x=[%.6f,%.6f] y=[%.6f,%.6f]",
+            data.shape, data.dtype, valid_count, data.size,
+            valid_count / max(data.size, 1) * 100,
+            float(np.nanmin(data)) if valid_count else 0,
+            float(np.nanmax(data)) if valid_count else 0,
+            x_coords[0], x_coords[-1], y_coords[0], y_coords[-1],
+        )
 
         return Terrain(x_coords=x_coords, y_coords=y_coords, data=data)
