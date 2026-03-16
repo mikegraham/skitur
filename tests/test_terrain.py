@@ -3,7 +3,9 @@ from unittest.mock import patch
 import geopandas as gpd
 import numpy as np
 import pytest
+import rasterio
 from dem_stitcher.exceptions import NoDEMCoverage
+from rasterio.transform import from_bounds
 from shapely.geometry import box as shapely_box
 
 from skitur.terrain import (
@@ -200,3 +202,98 @@ def test_grid_spacing_derived_from_coords():
     assert 9.5 < t.grid_spacing_ns < 11.0
     assert 6.5 < t.grid_spacing_ew < 8.0
     assert t.grid_spacing_ew < t.grid_spacing_ns
+
+
+# -- Corrupt tile detection tests --
+
+
+def _write_tile(path, data, nodata=-999999.0):
+    """Write a small GeoTIFF tile for testing."""
+    profile = {
+        "driver": "GTiff",
+        "dtype": "float32",
+        "width": data.shape[1],
+        "height": data.shape[0],
+        "count": 1,
+        "crs": "EPSG:4326",
+        "transform": from_bounds(-122.0, 46.0, -121.0, 47.0, data.shape[1], data.shape[0]),
+        "nodata": nodata,
+    }
+    with rasterio.open(path, "w", **profile) as ds:
+        ds.write(data, 1)
+
+
+def _make_tile_dir(tmp_path, filename, data, nodata=-999999.0):
+    """Create a tile dir with one tile for testing _purge_corrupt_tiles."""
+    tile_dir = tmp_path / "3dep"
+    tile_dir.mkdir(parents=True)
+    tile_path = tile_dir / filename
+    _write_tile(tile_path, data, nodata)
+    return tile_dir, tile_path
+
+
+def test_purge_detects_all_nodata_tile(tmp_path):
+    """A tile filled entirely with nodata should be purged.
+
+    Uses a large-ish tile (>50MB) so the size check doesn't skip it.
+    The 50MB threshold in _purge_corrupt_tiles distinguishes corrupt tiles
+    from legitimately empty coastal tiles (which are small).
+    """
+    # 3700x3700 float32 = ~52MB uncompressed; nodata compresses well
+    # but the file still needs to be >50MB on disk. Pad with random noise
+    # in nodata value to defeat compression.
+    side = 3700
+    data = np.full((side, side), -999999.0, dtype=np.float32)
+    tile_dir, tile_path = _make_tile_dir(tmp_path, "USGS_13_test.tif", data)
+    # If LZW compressed the file to <50MB, append padding to inflate it.
+    if tile_path.stat().st_size < 50_000_000:
+        with tile_path.open("ab") as f:
+            f.write(b"\x00" * (50_000_001 - tile_path.stat().st_size))
+
+    bounds = [-122.5, 45.5, -121.5, 46.5]
+    fake_tiles = gpd.GeoDataFrame(
+        {"url": ["https://example.com/USGS_13_test.tif"]},
+        geometry=[shapely_box(*bounds)],
+    )
+    with patch("skitur.terrain.get_overlapping_dem_tiles", return_value=fake_tiles):
+        TerrainLoader._purge_corrupt_tiles(tile_dir, bounds, "3dep")
+
+    assert not tile_path.exists(), "All-nodata tile should have been purged"
+
+
+def test_purge_keeps_valid_tile(tmp_path):
+    """A tile with real elevation data should not be purged."""
+    rng = np.random.default_rng(42)
+    data = rng.random((200, 200)).astype(np.float32) * 1000 + 500
+    tile_dir, tile_path = _make_tile_dir(tmp_path, "USGS_13_good.tif", data)
+
+    bounds = [-122.5, 45.5, -121.5, 46.5]
+    fake_tiles = gpd.GeoDataFrame(
+        {"url": ["https://example.com/USGS_13_good.tif"]},
+        geometry=[shapely_box(*bounds)],
+    )
+    with patch("skitur.terrain.get_overlapping_dem_tiles", return_value=fake_tiles):
+        TerrainLoader._purge_corrupt_tiles(tile_dir, bounds, "3dep")
+
+    assert tile_path.exists(), "Valid tile should NOT have been purged"
+
+
+def test_purge_detects_truncated_tile(tmp_path):
+    """A truncated GeoTIFF that rasterio can't read should be purged."""
+    rng = np.random.default_rng(42)
+    data = rng.random((200, 200)).astype(np.float32) * 1000
+    tile_dir, tile_path = _make_tile_dir(tmp_path, "USGS_13_trunc.tif", data)
+
+    # Truncate the file
+    full_bytes = tile_path.read_bytes()
+    tile_path.write_bytes(full_bytes[: len(full_bytes) // 3])
+
+    bounds = [-122.5, 45.5, -121.5, 46.5]
+    fake_tiles = gpd.GeoDataFrame(
+        {"url": ["https://example.com/USGS_13_trunc.tif"]},
+        geometry=[shapely_box(*bounds)],
+    )
+    with patch("skitur.terrain.get_overlapping_dem_tiles", return_value=fake_tiles):
+        TerrainLoader._purge_corrupt_tiles(tile_dir, bounds, "3dep")
+
+    assert not tile_path.exists(), "Truncated tile should have been purged"

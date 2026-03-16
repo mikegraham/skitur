@@ -112,6 +112,7 @@ ignore = [
     "PLC0415",  # import-outside-top-level (test fixtures)
     "PT018",    # composite assertion
     "PT006",    # parametrize names type
+    "SLF001",   # private member access (testing internals)
     "PLW1510",  # subprocess-run-without-check
     "SIM115",   # open-file-with-context-handler
     "SIM117",   # multiple-with-statements

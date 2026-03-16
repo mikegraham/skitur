@@ -628,6 +628,9 @@ class TerrainLoader:
         VM preemption, etc.). They have valid TIFF headers but missing or
         nodata-filled raster blocks. dem-stitcher skips existing files, so
         corrupt tiles persist forever unless explicitly purged.
+
+        Checks multiple locations across the tile (center, corners, edges)
+        to catch partial corruption.
         """
         import rasterio  # noqa: PLC0415
 
@@ -639,23 +642,38 @@ class TerrainLoader:
                 continue
             try:
                 with rasterio.open(cached) as ds:
-                    # Read a small patch at center to check for valid data.
-                    r, c = ds.shape[0] // 2, ds.shape[1] // 2
-                    w = rasterio.windows.Window(max(c - 50, 0), max(r - 50, 0), 100, 100)
-                    patch = ds.read(1, window=w)
-                    has_valid = bool(np.any(
-                        (patch != ds.nodata) & ~np.isnan(patch)
-                    )) if ds.nodata is not None else bool(np.any(~np.isnan(patch)))
-                if has_valid:
+                    nodata = ds.nodata
+                    rows, cols = ds.shape
+
+                    # Sample 5 locations: center + 4 quadrants
+                    sample_points = [
+                        (rows // 2, cols // 2),
+                        (rows // 4, cols // 4),
+                        (rows // 4, 3 * cols // 4),
+                        (3 * rows // 4, cols // 4),
+                        (3 * rows // 4, 3 * cols // 4),
+                    ]
+                    found_valid = False
+                    for sr, sc in sample_points:
+                        w = rasterio.windows.Window(
+                            max(sc - 25, 0), max(sr - 25, 0), 50, 50,
+                        )
+                        patch = ds.read(1, window=w)
+                        if nodata is not None:
+                            has_valid = bool(np.any((patch != nodata) & ~np.isnan(patch)))
+                        else:
+                            has_valid = bool(np.any(~np.isnan(patch)))
+                        if has_valid:
+                            found_valid = True
+                            break
+
+                if found_valid:
                     continue
-                # All-nodata at center. Could be legitimately empty (ocean tile)
-                # or corrupt. Check file size -- corrupt tiles from interrupted
-                # writes are usually much smaller than expected.
-                # A full 3DEP tile is ~400-500MB; GLO-30 is ~200-400MB.
-                # Skip small tiles that might legitimately be mostly water.
+                # No valid data at any sample point. Skip small files that
+                # are legitimately mostly water (e.g. coastal tiles).
                 if cached.stat().st_size < 50_000_000:
                     continue
-                logger.warning("Purging corrupt tile: %s (%d bytes, center all nodata)",
+                logger.warning("Purging corrupt tile: %s (%d bytes, 0 valid samples)",
                                filename, cached.stat().st_size)
             except (OSError, rasterio.errors.RasterioIOError):
                 logger.warning("Purging unreadable tile: %s", filename)

@@ -275,13 +275,52 @@ def download_tile(lat_floor: int, lon_floor: int, cache_dir: Path) -> bool:
         )
         for p in paths:
             p = Path(p)
-            if p.exists():
-                os.rename(p, live_dir / p.name)
+            if not p.exists():
+                continue
+            # Validate tile before moving to live cache.
+            if not _validate_tile(p):
+                print(f"    CORRUPT tile {p.name} -- discarding")
+                p.unlink(missing_ok=True)
+                return False
+            os.rename(p, live_dir / p.name)
         dt = time.perf_counter() - t0
         print(f"    downloaded ({source_name}) in {dt:.1f}s")
         return True
     except Exception as e:
         print(f"    FAILED: {e}")
+        return False
+
+
+def _validate_tile(path: Path) -> bool:
+    """Check that a downloaded DEM tile has valid (non-nodata) raster data.
+
+    Returns False for tiles that are unreadable or contain only nodata values
+    across multiple sample points. Small files (<50MB) are assumed valid since
+    they may legitimately cover mostly water.
+    """
+    import numpy as np
+    import rasterio
+
+    if path.stat().st_size < 50_000_000:
+        return True
+    try:
+        with rasterio.open(path) as ds:
+            nodata = ds.nodata
+            rows, cols = ds.shape
+            for sr, sc in [
+                (rows // 2, cols // 2),
+                (rows // 4, cols // 4),
+                (3 * rows // 4, 3 * cols // 4),
+            ]:
+                w = rasterio.windows.Window(max(sc - 25, 0), max(sr - 25, 0), 50, 50)
+                patch = ds.read(1, window=w)
+                if nodata is not None:
+                    if np.any((patch != nodata) & ~np.isnan(patch)):
+                        return True
+                elif np.any(~np.isnan(patch)):
+                    return True
+        return False
+    except (OSError, rasterio.errors.RasterioIOError):
         return False
 
 
