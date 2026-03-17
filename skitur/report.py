@@ -241,10 +241,12 @@ def build_embedded_report_html(
     template_html: str,
     data: dict,
     filename: str,
+    site_title: str = "skitur",
 ) -> str:
     """Inject analysis JSON into the report template and auto-render results."""
     data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode()
     filename_json = orjson.dumps(filename).decode()
+    site_title_json = orjson.dumps(site_title).decode()
 
     inject = (
         "<script>\n"
@@ -252,6 +254,9 @@ def build_embedded_report_html(
         f"  const data = {data_json};\n"
         "  trackData = data;\n"
         f"  renderResults(data, {filename_json});\n"
+        f"  document.title = {filename_json} + ' - ' + {site_title_json};\n"
+        f"  var st = document.getElementById('site-title');\n"
+        f"  if (st) st.textContent = {site_title_json};\n"
         "});\n"
         "</script>\n"
     )

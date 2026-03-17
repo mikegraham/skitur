@@ -148,7 +148,11 @@ def analyze_web():
         body = _get_analysis_json(gpx_file.read())
         data = orjson.loads(body)
         template_html = render_template("report.html")
-        html = build_embedded_report_html(template_html, data, gpx_file.filename or "track")
+        title = app.config.get("SITE_TITLE", "skitur")
+        html = build_embedded_report_html(
+            template_html, data, gpx_file.filename or "track",
+            site_title=title,
+        )
         return Response(html, content_type="text/html")
     except (ValueError, EmptyTrackError) as exc:
         return redirect(url_for("index", error=str(exc)))
