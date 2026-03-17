@@ -5,7 +5,47 @@ on:
     branches: [main]
 
 jobs:
+  pre-deploy-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -f deploy/Dockerfile -t skitur-test .
+
+      - name: Start container
+        run: |
+          docker run -d --name skitur-test \
+            -p 8000:8000 \
+            -e SKITUR_CONFIG=/app/deploy/config/production.py \
+            skitur-test \
+            gunicorn skitur.app:app --bind 0.0.0.0:8000 --workers 1 --timeout 120
+
+      - name: Wait for server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8000/healthz | grep -q ok; then
+              echo "Server is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Server failed to start"
+          docker logs skitur-test
+          exit 1
+
+      - name: Run smoke tests against container
+        run: |
+          pip install requests playwright
+          python -m playwright install --with-deps chromium
+          python scripts/smoke_test.py http://localhost:8000
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f skitur-test
+
   deploy:
+    needs: pre-deploy-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +74,7 @@ jobs:
             --data '{"purge_everything":true}'
         continue-on-error: true
 
-      - name: Smoke test
+      - name: Smoke test production
         if: success()
         run: |
           pip install requests playwright
