@@ -37,5 +37,6 @@ jobs:
       - name: Smoke test
         if: success()
         run: |
-          pip install requests pytest pytest-socket
-          SMOKE_TEST_URL=https://fjell.ski python -m pytest tests/test_smoke.py -v --noconftest -o "addopts=" -o "required_plugins="
+          pip install requests playwright
+          python -m playwright install --with-deps chromium
+          python scripts/smoke_test.py https://fjell.ski
