@@ -1,0 +1,21 @@
+name: Smoke test
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"  # every 6 hours
+  workflow_dispatch: {}     # manual trigger
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install requests pytest pytest-socket
+
+      - name: Run smoke tests
+        run: >
+          SMOKE_TEST_URL=https://fjell.ski
+          python -m pytest tests/test_smoke.py -v
+          --noconftest -o "addopts=" -o "required_plugins="
