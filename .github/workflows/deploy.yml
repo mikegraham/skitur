@@ -55,6 +55,8 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
       - name: Purge Cloudflare cache
+        id: purge
+        continue-on-error: true
         run: |
           curl -sf -X POST \
             "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_ZONE_ID }}/purge_cache" \
@@ -63,8 +65,11 @@ jobs:
             --data '{"purge_everything":true}'
 
       - name: Smoke test production
-        if: success()
         run: |
           pip install requests playwright
           python -m playwright install --with-deps chromium
           python scripts/smoke_test.py https://fjell.ski
+
+      - name: Fail if cache purge failed
+        if: steps.purge.outcome == 'failure'
+        run: exit 1
