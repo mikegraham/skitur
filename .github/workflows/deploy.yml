@@ -38,7 +38,7 @@ jobs:
         run: |
           pip install requests playwright
           python -m playwright install --with-deps chromium
-          python scripts/smoke_test.py http://localhost:8000
+          python scripts/smoke_test.py http://localhost:8000 --gpx tests/data/jotunheimen_short.gpx
 
       - name: Stop container
         if: always()

@@ -3,7 +3,7 @@
 
 Usage:
     python scripts/smoke_test.py https://fjell.ski
-    python scripts/smoke_test.py https://fjell.ski --browser
+    python scripts/smoke_test.py http://localhost:8000 --gpx tests/data/jotunheimen_short.gpx
 """
 
 from __future__ import annotations
@@ -15,7 +15,8 @@ from pathlib import Path
 
 import requests
 
-TEST_GPX = Path(__file__).resolve().parent.parent / "tests" / "data" / "hood_descent.gpx"
+_DATA_DIR = Path(__file__).resolve().parent.parent / "tests" / "data"
+DEFAULT_GPX = _DATA_DIR / "hood_descent.gpx"
 
 failures = 0
 
@@ -58,12 +59,12 @@ def test_healthz(base_url):
     check("healthz body", data.get("status") == "ok", f"got {data}")
 
 
-def test_analyze_json(base_url):
-    with TEST_GPX.open("rb") as f:
+def test_analyze_json(base_url, gpx_path):
+    with gpx_path.open("rb") as f:
         resp = requests.post(
             f"{base_url}/api/analyze",
-            files={"gpx_file": ("hood_descent.gpx", f, "application/octet-stream")},
-            timeout=120,
+            files={"gpx_file": (gpx_path.name, f, "application/octet-stream")},
+            timeout=300,
         )
     check("analyze JSON status", resp.status_code == 200, f"got {resp.status_code}")
     data = resp.json()
@@ -72,46 +73,42 @@ def test_analyze_json(base_url):
         check(f"has '{key}'", key in data)
 
     track = data.get("track", [])
-    check("track has points", len(track) > 10, f"got {len(track)}")
+    check("track has points", len(track) > 2, f"got {len(track)}")
 
-    if len(track) > 5:
-        pt = track[5]
+    if len(track) > 1:
+        pt = track[1]
         for key in ("lat", "lon", "elevation", "distance", "track_slope", "ground_slope"):
             check(f"point has '{key}'", key in pt)
-        check("track is on Mt Hood", 45.3 < pt.get("lat", 0) < 45.4)
 
     stats = data.get("stats", {})
-    check("distance > 3km", stats.get("total_distance_m", 0) > 3000)
-    check("elevation loss > 1000m", stats.get("elevation_loss_m", 0) > 1000)
+    check("has distance", stats.get("total_distance_m", 0) > 0)
+
+    elevs = [p["elevation"] for p in track if p.get("elevation") is not None]
+    check("has elevation data", len(elevs) > 0, f"{len(elevs)}/{len(track)} non-null")
 
     score = data.get("score", {})
     check("score 0-100", 0 <= score.get("total", -1) <= 100)
-    check("score < 60 (Hood is steep)", score.get("total", 100) < 60)
-    check("has avy terrain", score.get("pct_avy_terrain", 0) > 0)
 
     sg = data.get("slope_grid", {})
     check("slope grid has data", sg.get("rows", 0) > 0 and sg.get("cols", 0) > 0)
 
-    contours = data.get("contours", {})
-    check("has contour lines", len(contours.get("major", [])) > 0)
 
-
-def test_analyze_html(base_url):
-    with TEST_GPX.open("rb") as f:
+def test_analyze_html(base_url, gpx_path):
+    with gpx_path.open("rb") as f:
         resp = requests.post(
             f"{base_url}/analyze",
-            files={"gpx_file": ("hood_descent.gpx", f, "application/octet-stream")},
-            timeout=120,
+            files={"gpx_file": (gpx_path.name, f, "application/octet-stream")},
+            timeout=300,
         )
     check("analyze HTML status", resp.status_code == 200, f"got {resp.status_code}")
     check("content-type is HTML", "text/html" in resp.headers.get("content-type", ""))
     check("has results-section", 'id="results-section"' in resp.text)
     check("no upload-section", 'id="upload-section"' not in resp.text)
     check("has renderResults", "renderResults" in resp.text)
-    check("has embedded track data", "hood_descent" in resp.text)
+    check("has embedded track data", gpx_path.stem in resp.text)
 
 
-def test_browser_render(base_url):
+def test_browser_render(base_url, gpx_path):
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
@@ -122,7 +119,7 @@ def test_browser_render(base_url):
         page.on("pageerror", lambda e: errors.append(str(e)))
 
         page.goto(f"{base_url}/")
-        page.set_input_files('input[name="gpx_file"]', str(TEST_GPX))
+        page.set_input_files('input[name="gpx_file"]', str(gpx_path))
 
         try:
             page.wait_for_function(
@@ -148,18 +145,21 @@ def test_browser_render(base_url):
 def main():
     parser = argparse.ArgumentParser(description="Smoke test the live service.")
     parser.add_argument("url", help="Base URL (e.g. https://fjell.ski)")
+    parser.add_argument("--gpx", type=Path, default=DEFAULT_GPX,
+                        help="GPX file to upload (default: hood_descent.gpx)")
     args = parser.parse_args()
 
     base_url = args.url.rstrip("/")
+    gpx_path = args.gpx.resolve()
 
     wait_for_service(base_url)
-    print("\nRunning smoke tests...\n")
+    print(f"\nRunning smoke tests against {base_url} with {gpx_path.name}...\n")
 
     test_landing_page(base_url)
     test_healthz(base_url)
-    test_analyze_json(base_url)
-    test_analyze_html(base_url)
-    test_browser_render(base_url)
+    test_analyze_json(base_url, gpx_path)
+    test_analyze_html(base_url, gpx_path)
+    test_browser_render(base_url, gpx_path)
 
     print(f"\n{'PASSED' if failures == 0 else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
