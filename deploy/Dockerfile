@@ -31,4 +31,12 @@ ENV GDAL_HTTP_RETRY_DELAY=5
 EXPOSE 8000
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["gunicorn", "skitur.app:app", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "600"]
+CMD ["gunicorn", "skitur.app:app", \
+     "--bind", "0.0.0.0:8000", \
+     "--workers", "2", \
+     "--timeout", "600", \
+     "--access-logfile", "-", \
+     "--access-logformat", "%(h)s \"%(r)s\" %(s)s %(b)s %(D)sus \"%(f)s\"", \
+     "--error-logfile", "-", \
+     "--log-level", "info", \
+     "--forwarded-allow-ips", "*"]
