@@ -250,6 +250,7 @@ print("OK: all element screenshots identical across two renders")
 """
 
 
+
 def test_results_section_visible(rendered_page):
     """The results section should be displayed (display != 'none')."""
     page = rendered_page
