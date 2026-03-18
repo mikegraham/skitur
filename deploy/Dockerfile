@@ -36,7 +36,7 @@ CMD ["gunicorn", "skitur.app:app", \
      "--workers", "2", \
      "--timeout", "600", \
      "--access-logfile", "-", \
-     "--access-logformat", "%(h)s \"%(r)s\" %(s)s %(b)s %(D)sus \"%(f)s\"", \
+     "--access-logformat", "%({cf-connecting-ip}i)s \"%(r)s\" %(s)s %(b)s %(D)sus \"%(f)s\"", \
      "--error-logfile", "-", \
      "--log-level", "info", \
      "--forwarded-allow-ips", "*"]
