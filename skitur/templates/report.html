@@ -405,7 +405,7 @@ function renderScore(score) {
         </div>
         ${score.avg_downhill_slope > 0 ? bar("Downhill fun", score.downhill_quality) : ""}
         ${score.avg_uphill_slope > 0 ? bar("Uphill doability", score.uphill_quality) : ""}
-        ${bar("Avalanche exposure <a href='https://avtraining.org/' target='_blank' rel='noopener' style='color:#4a90d9;font-size:0.8em;text-decoration:underline;'>(Don't trust us!)</a>", score.avy_exposure, {fill: '#9ca3af', track: '#ef4444'})}
+        ${bar("Avalanche terrain metric <a href='https://avtraining.org/' target='_blank' rel='noopener' style='color:#4a90d9;font-size:0.8em;text-decoration:underline;'>(Don't trust us!)</a>", score.avy_exposure, {fill: '#9ca3af', track: '#ef4444'})}
         <div class="score-metrics">
             Avg downhill: ${score.avg_downhill_slope.toFixed(1)}&deg; &middot;
             Avg uphill: ${score.avg_uphill_slope.toFixed(1)}&deg; &middot;

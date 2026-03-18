@@ -532,10 +532,10 @@ def test_template_has_avtraining_link():
     assert "avtraining.org" in html
 
 
-def test_template_mentions_avalanche_exposure():
-    """Score panel should say 'Avalanche exposure', not 'Avy safety'."""
+def test_template_mentions_avalanche_terrain_metric():
+    """Score panel should say 'Avalanche terrain metric', not 'Avy safety'."""
     html = _read_report_template()
-    assert "Avalanche exposure" in html or "avalanche exposure" in html.lower()
+    assert "Avalanche terrain metric" in html
     assert "Avy safety" not in html
 
 
