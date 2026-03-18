@@ -67,7 +67,11 @@ def test_analyze_json(base_url, gpx_path):
             timeout=300,
         )
     check("analyze JSON status", resp.status_code == 200, f"got {resp.status_code}")
-    data = resp.json()
+    try:
+        data = resp.json()
+    except requests.exceptions.JSONDecodeError:
+        check("analyze JSON parseable", False, f"got {resp.text[:200]}")
+        return
 
     for key in ("track", "stats", "score", "slope_grid", "contours"):
         check(f"has '{key}'", key in data)
