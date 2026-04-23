@@ -1287,14 +1287,13 @@ function renderTrackDistribution(track) {
     const upBins = makeBins(upSlopes);
     const downBins = makeBins(downSlopes);
 
-    const upTotal = upSlopes.length || 1;
-    const downTotal = downSlopes.length || 1;
+    const grandTotal = (upSlopes.length + downSlopes.length) || 1;
 
     const traces = [];
     if (upSlopes.length > 0) {
         traces.push({
             x: upBins.map(b => b.mid),
-            y: upBins.map(b => (b.count / upTotal) * 100),
+            y: upBins.map(b => (b.count / grandTotal) * 100),
             type: "bar",
             name: "Uphill",
             width: binSize * 0.92,
@@ -1309,7 +1308,7 @@ function renderTrackDistribution(track) {
     if (downSlopes.length > 0) {
         traces.push({
             x: downBins.map(b => b.mid),
-            y: downBins.map(b => -(b.count / downTotal) * 100),
+            y: downBins.map(b => -(b.count / grandTotal) * 100),
             type: "bar",
             name: "Downhill",
             width: binSize * 0.92,
@@ -1318,7 +1317,7 @@ function renderTrackDistribution(track) {
                 color: downBins.map(b => slopeToColor(b.mid)),
                 line: { width: 0.3, color: "rgba(255,255,255,0.5)" },
             },
-            customdata: downBins.map(b => ((b.count / downTotal) * 100).toFixed(1)),
+            customdata: downBins.map(b => ((b.count / grandTotal) * 100).toFixed(1)),
             hovertemplate: downBins.map(b => `${binLabel(b)}: %{customdata}%<extra>Downhill</extra>`),
         });
     }
