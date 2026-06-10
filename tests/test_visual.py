@@ -77,13 +77,11 @@ def rendered_page():
             content_type="multipart/form-data",
         )
     assert resp.status_code == 200, f"Analysis failed: {resp.data.decode()}"
-    data = resp.get_json()
-    assert data is not None
 
     template_path = Path(__file__).parent.parent / "skitur" / "templates" / "report.html"
     template_html = template_path.read_text()
 
-    html = build_embedded_report_html(template_html, data, "Twin_Lakes.gpx")
+    html = build_embedded_report_html(template_html, resp.data, "Twin_Lakes.gpx")
     # Strip SRI integrity attributes so locally-served CDN scripts
     # aren't blocked by hash mismatches.
     import re
@@ -185,10 +183,9 @@ with GPX.open("rb") as f:
         content_type="multipart/form-data",
     )
 assert resp.status_code == 200
-data = resp.get_json()
 
 tpl = (ROOT / "skitur" / "templates" / "report.html").read_text()
-html = build_embedded_report_html(tpl, data, "Twin_Lakes.gpx")
+html = build_embedded_report_html(tpl, resp.data, "Twin_Lakes.gpx")
 html = re.sub(r'\s+integrity="[^"]*"', "", html)
 
 tmp = tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w")

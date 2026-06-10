@@ -68,10 +68,9 @@ def main():
             content_type="multipart/form-data",
         )
     assert resp.status_code == 200
-    data = resp.get_json()
 
     tpl = (ROOT / "skitur" / "templates" / "report.html").read_text()
-    html = build_embedded_report_html(tpl, data, "Twin_Lakes.gpx")
+    html = build_embedded_report_html(tpl, resp.data, "Twin_Lakes.gpx")
     html = re.sub(r'\s+integrity="[^"]*"', "", html)
 
     tmp = tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w")

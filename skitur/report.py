@@ -237,28 +237,39 @@ def build_analysis_payload(gpx_path: Path, *, terrain_loader: terrain.TerrainLoa
     return _build_response(points, stats, score, grids)
 
 
+def _json_data_island(element_id: str, data_json: bytes) -> str:
+    """Wrap serialized JSON in an inert <script type=application/json> element.
+
+    The browser never executes the contents, so embedded values cannot break
+    out into script regardless of what they contain. The only way to end the
+    element early is a literal '</script>', so '<', '>' and '&' are replaced
+    with their \\uXXXX escape (the json_script convention); JSON.parse decodes
+    them back, leaving the value unchanged.
+    """
+    for char, escape in ((b"<", b"\\u003c"), (b">", b"\\u003e"), (b"&", b"\\u0026")):
+        data_json = data_json.replace(char, escape)
+    return f'<script type="application/json" id="{element_id}">{data_json.decode()}</script>\n'
+
+
 def build_embedded_report_html(
     template_html: str,
-    data: dict,
+    data_json: bytes,
     filename: str,
     site_title: str = "skitur",
 ) -> str:
-    """Inject analysis JSON into the report template and auto-render results."""
-    data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode()
-    filename_json = orjson.dumps(filename).decode()
-    site_title_json = orjson.dumps(site_title).decode()
+    """Inject the analysis payload and metadata as inert JSON data islands.
 
+    data_json is the already-serialized analysis payload (orjson bytes), which
+    _get_analysis_json produces and caches; it is embedded verbatim rather than
+    re-serialized per request. The report template reads the islands with
+    JSON.parse and renders itself, so nothing user-controlled (notably the
+    upload filename) is ever placed in an executable script context --
+    preventing reflected XSS via a filename such as '</script><img ...>'.
+    """
+    meta_json = orjson.dumps({"filename": filename, "siteTitle": site_title})
     inject = (
-        "<script>\n"
-        "document.addEventListener('DOMContentLoaded', function() {\n"
-        f"  const data = {data_json};\n"
-        "  trackData = data;\n"
-        f"  renderResults(data, {filename_json});\n"
-        f"  document.title = {filename_json} + ' - ' + {site_title_json};\n"
-        f"  var st = document.getElementById('site-title');\n"
-        f"  if (st) st.textContent = {site_title_json};\n"
-        "});\n"
-        "</script>\n"
+        _json_data_island("report-data", data_json)
+        + _json_data_island("report-meta", meta_json)
     )
     return template_html.replace("</body>", inject + "</body>")
 
@@ -271,10 +282,11 @@ def generate_report(
         output_path = gpx_path.with_name(gpx_path.stem + "_report.html")
 
     data = build_analysis_payload(gpx_path, terrain_loader=terrain_loader)
+    data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY)
     template_html = (Path(__file__).parent / "templates" / "report.html").read_text()
 
     filename = gpx_path.stem.replace("_", " ")
-    html = build_embedded_report_html(template_html, data, filename)
+    html = build_embedded_report_html(template_html, data_json, filename)
 
     output_path.write_text(html)
     return output_path
