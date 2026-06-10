@@ -1631,6 +1631,23 @@ function renderAspectDist(data) {
         responsive: true, displaylogo: false, modeBarButtonsToRemove: ["toImage"],
     });
 }
+
+// The analysis payload and report metadata are injected as inert
+// <script type="application/json"> data islands (see build_embedded_report_html).
+// Reading them here -- rather than receiving them via an injected executable
+// script -- keeps server- and user-supplied values out of any script context.
+document.addEventListener("DOMContentLoaded", function () {
+    const dataEl = document.getElementById("report-data");
+    const metaEl = document.getElementById("report-meta");
+    if (!dataEl || !metaEl) return;
+    const data = JSON.parse(dataEl.textContent);
+    const meta = JSON.parse(metaEl.textContent);
+    trackData = data;
+    renderResults(data, meta.filename);
+    document.title = meta.filename + " - " + meta.siteTitle;
+    const st = document.getElementById("site-title");
+    if (st) st.textContent = meta.siteTitle;
+});
 </script>
 </body>
 </html>

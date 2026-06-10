@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 from io import BytesIO
 from pathlib import Path
 
@@ -306,6 +307,40 @@ def test_analyze_web_error_redirects(client):
     resp = client.post("/analyze")
     assert resp.status_code == 302
     assert "error=" in resp.headers["Location"]
+
+
+def test_embedded_report_uses_inert_json_islands():
+    """Payload and filename are embedded as inert JSON, immune to script breakout.
+
+    Regression for reflected XSS: a filename like '</script><img src=x
+    onerror=...>' previously broke out of the inline <script> and executed in
+    the site origin. Data now lives in <script type="application/json"> islands
+    read via JSON.parse, so no user-controlled value reaches a script context.
+    """
+    template_html = (
+        Path(__file__).parent.parent / "skitur" / "templates" / "report.html"
+    ).read_text()
+    payload = "</script><img src=x onerror=alert(document.domain)>.gpx"
+    # Drive the breakout attempt through both the filename and a payload string.
+    html = build_embedded_report_html(
+        template_html, {"track": [], "evil": payload}, payload
+    )
+
+    # No raw breakout sequence survives anywhere in the output.
+    assert "</script><img" not in html
+
+    def island(element_id):
+        match = re.search(
+            rf'<script type="application/json" id="{element_id}">(.*?)</script>',
+            html,
+            re.DOTALL,
+        )
+        assert match, f"data island {element_id} not found"
+        return json.loads(match.group(1))
+
+    # Both islands are valid JSON that round-trips the hostile string as data.
+    assert island("report-meta")["filename"] == payload
+    assert island("report-data")["evil"] == payload
 
 
 def test_analyze_success(client):

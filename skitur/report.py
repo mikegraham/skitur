@@ -237,28 +237,38 @@ def build_analysis_payload(gpx_path: Path, *, terrain_loader: terrain.TerrainLoa
     return _build_response(points, stats, score, grids)
 
 
+def _json_data_island(element_id: str, data_json: bytes) -> str:
+    """Wrap serialized JSON in an inert <script type=application/json> element.
+
+    The browser never executes the contents, so embedded values cannot break
+    out into script regardless of what they contain. The only way to end the
+    element early is a literal '</script>', so '<', '>' and '&' are replaced
+    with their \\uXXXX escape (the json_script convention); JSON.parse decodes
+    them back, leaving the value unchanged.
+    """
+    for char, escape in ((b"<", b"\\u003c"), (b">", b"\\u003e"), (b"&", b"\\u0026")):
+        data_json = data_json.replace(char, escape)
+    return f'<script type="application/json" id="{element_id}">{data_json.decode()}</script>\n'
+
+
 def build_embedded_report_html(
     template_html: str,
     data: dict,
     filename: str,
     site_title: str = "skitur",
 ) -> str:
-    """Inject analysis JSON into the report template and auto-render results."""
-    data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY).decode()
-    filename_json = orjson.dumps(filename).decode()
-    site_title_json = orjson.dumps(site_title).decode()
+    """Inject the analysis payload and metadata as inert JSON data islands.
 
+    The report template reads the islands with JSON.parse and renders itself, so
+    nothing user-controlled (notably the upload filename) is ever placed in an
+    executable script context -- preventing reflected XSS via a filename such as
+    '</script><img src=x onerror=...>'.
+    """
+    data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY)
+    meta_json = orjson.dumps({"filename": filename, "siteTitle": site_title})
     inject = (
-        "<script>\n"
-        "document.addEventListener('DOMContentLoaded', function() {\n"
-        f"  const data = {data_json};\n"
-        "  trackData = data;\n"
-        f"  renderResults(data, {filename_json});\n"
-        f"  document.title = {filename_json} + ' - ' + {site_title_json};\n"
-        f"  var st = document.getElementById('site-title');\n"
-        f"  if (st) st.textContent = {site_title_json};\n"
-        "});\n"
-        "</script>\n"
+        _json_data_island("report-data", data_json)
+        + _json_data_island("report-meta", meta_json)
     )
     return template_html.replace("</body>", inject + "</body>")
 
