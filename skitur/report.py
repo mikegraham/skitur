@@ -253,18 +253,19 @@ def _json_data_island(element_id: str, data_json: bytes) -> str:
 
 def build_embedded_report_html(
     template_html: str,
-    data: dict,
+    data_json: bytes,
     filename: str,
     site_title: str = "skitur",
 ) -> str:
     """Inject the analysis payload and metadata as inert JSON data islands.
 
-    The report template reads the islands with JSON.parse and renders itself, so
-    nothing user-controlled (notably the upload filename) is ever placed in an
-    executable script context -- preventing reflected XSS via a filename such as
-    '</script><img src=x onerror=...>'.
+    data_json is the already-serialized analysis payload (orjson bytes), which
+    _get_analysis_json produces and caches; it is embedded verbatim rather than
+    re-serialized per request. The report template reads the islands with
+    JSON.parse and renders itself, so nothing user-controlled (notably the
+    upload filename) is ever placed in an executable script context --
+    preventing reflected XSS via a filename such as '</script><img ...>'.
     """
-    data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY)
     meta_json = orjson.dumps({"filename": filename, "siteTitle": site_title})
     inject = (
         _json_data_island("report-data", data_json)
@@ -281,10 +282,11 @@ def generate_report(
         output_path = gpx_path.with_name(gpx_path.stem + "_report.html")
 
     data = build_analysis_payload(gpx_path, terrain_loader=terrain_loader)
+    data_json = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY)
     template_html = (Path(__file__).parent / "templates" / "report.html").read_text()
 
     filename = gpx_path.stem.replace("_", " ")
-    html = build_embedded_report_html(template_html, data, filename)
+    html = build_embedded_report_html(template_html, data_json, filename)
 
     output_path.write_text(html)
     return output_path

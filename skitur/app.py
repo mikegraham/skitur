@@ -146,11 +146,10 @@ def analyze_web():
     gpx_file = request.files["gpx_file"]
     try:
         body = _get_analysis_json(gpx_file.read())
-        data = orjson.loads(body)
         template_html = render_template("report.html")
         title = app.config.get("SITE_TITLE", "skitur")
         html = build_embedded_report_html(
-            template_html, data, gpx_file.filename or "track",
+            template_html, body, gpx_file.filename or "track",
             site_title=title,
         )
         return Response(html, content_type="text/html")

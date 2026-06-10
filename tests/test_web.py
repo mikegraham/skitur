@@ -6,6 +6,7 @@ import re
 from io import BytesIO
 from pathlib import Path
 
+import orjson
 import pytest
 
 from skitur.app import app
@@ -323,7 +324,7 @@ def test_embedded_report_uses_inert_json_islands():
     payload = "</script><img src=x onerror=alert(document.domain)>.gpx"
     # Drive the breakout attempt through both the filename and a payload string.
     html = build_embedded_report_html(
-        template_html, {"track": [], "evil": payload}, payload
+        template_html, orjson.dumps({"track": [], "evil": payload}), payload
     )
 
     # No raw breakout sequence survives anywhere in the output.
@@ -727,7 +728,11 @@ def rendered_page(analysis_data):
     with (Path(__file__).parent.parent / "skitur" / "templates" / "report.html").open() as f:
         template_html = f.read()
 
-    html = build_embedded_report_html(template_html, analysis_data, "test.gpx")
+    html = build_embedded_report_html(
+        template_html,
+        orjson.dumps(analysis_data, option=orjson.OPT_SERIALIZE_NUMPY),
+        "test.gpx",
+    )
     # Strip SRI integrity attributes so locally-served CDN scripts
     # aren't blocked by hash mismatches.
     import re
