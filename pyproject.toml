@@ -87,6 +87,7 @@ ignore = [
     "FIX",     # flags TODO/FIXME comments
     "TD",      # strict TODO format requirements
     "COM812",  # trailing commas -- conflicts with ruff formatter
+    "CPY001",  # missing-copyright-notice -- no per-file copyright headers
     "PLR2004", # magic values -- numbers like 90.0 or 2 are clear in context
     "PLR0911", # too-many-return-statements
     "PLR0912", # too-many-branches

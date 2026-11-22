@@ -139,7 +139,7 @@ def test_dem_fallback_uses_second_source_on_no_coverage(terrain_loader):
     def mock_covers(source, fetch_bounds):
         return source.name != _DEM_SOURCES[0].name
 
-    def mock_fetch(self, source, lat_min, lat_max, lon_min, lon_max):
+    def mock_fetch(self, source, lat_min, lat_max, lon_min, lon_max):  # noqa: PLR0917
         fetch_log.append(source.name)
         return _make_terrain_from_source(source, lat_min, lat_max, lon_min, lon_max)
 

@@ -40,7 +40,7 @@ def _fuzz_dem():
     return TerrainLoader(cache_dir=_DEM_CACHE_DIR).load(44.9, 45.5, -121.9, -121.4, padding=0.02)
 
 
-def _make_point(lat=45.0, lon=-121.0, elevation=2000, distance=0,
+def _make_point(*, lat=45.0, lon=-121.0, elevation=2000, distance=0,
                 track_slope=None, ground_slope=10):
     """Shorthand for building test TrackPoints."""
     return TrackPoint(

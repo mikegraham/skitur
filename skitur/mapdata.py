@@ -23,7 +23,7 @@ def choose_contour_steps_ft(elev_ft_min: float, elev_ft_max: float) -> tuple[int
     return minor, minor * 5
 
 
-def sample_elevation_grid(
+def sample_elevation_grid(  # noqa: PLR0917
     dem: terrain.Terrain,
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, resolution: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -35,7 +35,7 @@ def sample_elevation_grid(
     return lon_mesh, lat_mesh, elev_grid_ft
 
 
-def sample_slope_grid(
+def sample_slope_grid(  # noqa: PLR0917
     dem: terrain.Terrain,
     lat_min: float, lat_max: float, lon_min: float, lon_max: float, resolution: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -49,6 +49,7 @@ def sample_slope_grid(
 def compute_map_grids(
     dem: terrain.Terrain,
     points: list[analyze.TrackPoint],
+    *,
     padding: float = 0.003,
     resolution: int = 400,
     contour_resolution: int | None = None,

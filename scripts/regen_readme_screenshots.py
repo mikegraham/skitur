@@ -59,38 +59,12 @@ def _intercept(route):
         route.continue_()
 
 
-def main():
-    client = app.test_client()
-    with GPX.open("rb") as f:
-        resp = client.post(
-            "/api/analyze",
-            data={"gpx_file": (f, "Twin_Lakes.gpx")},
-            content_type="multipart/form-data",
-        )
-    assert resp.status_code == 200
-
-    tpl = (ROOT / "skitur" / "templates" / "report.html").read_text()
-    html = build_embedded_report_html(tpl, resp.data, "Twin_Lakes.gpx")
-    html = re.sub(r'\s+integrity="[^"]*"', "", html)
-
-    tmp = tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w")
-    tmp.write(html)
-    tmp.close()
-    tmp_path = Path(tmp.name)
-
-    handler = partial(SimpleHTTPRequestHandler, directory=str(tmp_path.parent))
-    server = HTTPServer(("127.0.0.1", 0), handler)
-    port = server.server_address[1]
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-
+def _take_screenshots(url):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1200, "height": 900})
         page.route("**/static/**", _intercept)
-        page.goto(
-            f"http://127.0.0.1:{port}/{tmp_path.name}",
-            wait_until="domcontentloaded",
-        )
+        page.goto(url, wait_until="domcontentloaded")
         page.wait_for_function(WAIT_JS, timeout=30000)
 
         for selector, filename in SCREENSHOTS:
@@ -116,8 +90,33 @@ def main():
 
         browser.close()
 
-    server.shutdown()
-    tmp_path.unlink(missing_ok=True)
+
+def main():
+    client = app.test_client()
+    with GPX.open("rb") as f:
+        resp = client.post(
+            "/api/analyze",
+            data={"gpx_file": (f, "Twin_Lakes.gpx")},
+            content_type="multipart/form-data",
+        )
+    assert resp.status_code == 200
+
+    tpl = (ROOT / "skitur" / "templates" / "report.html").read_text()
+    html = build_embedded_report_html(tpl, resp.data, "Twin_Lakes.gpx")
+    html = re.sub(r'\s+integrity="[^"]*"', "", html)
+
+    # A directory of its own, so the local server offers nothing but the report
+    # and the file is removed even when a screenshot fails.
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        (Path(tmp_dir) / "report.html").write_text(html)
+        handler = partial(SimpleHTTPRequestHandler, directory=tmp_dir)
+        server = HTTPServer(("127.0.0.1", 0), handler)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            _take_screenshots(f"http://127.0.0.1:{port}/report.html")
+        finally:
+            server.shutdown()
     print("Done")
 
 
